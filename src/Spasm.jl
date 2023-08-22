@@ -1,11 +1,11 @@
 module Spasm
 
-using SparseArrays #, Libdl
+using SparseArrays, Libdl
 
 import Base: unsafe_convert
 import SparseArrays: nnz
 
-const spasm_lib = const LIB_FILE = "$(@__DIR__)" * "/../deps/spasm/src/.libs/libspasm." * "dylib" #Libdl.dlext
+const spasm_lib = const LIB_FILE = "$(@__DIR__)" * "/../deps/spasm/src/.libs/libspasm." * Libdl.dlext
 
 struct GFp v::Cuint end
 GFp(x::Integer,prime = 42013) = GFp(Cuint(mod(x,prime)))
