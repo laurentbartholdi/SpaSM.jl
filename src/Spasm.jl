@@ -53,7 +53,7 @@ function SparseArrays.sparse(A::spasm)
     SparseMatrixCSC{GFp,Int}(A.m,A.n,[Int(unsafe_load(A.p,i))+1 for i=1:A.n+1],[Int(unsafe_load(A.j,i))+1 for i=1:nnz],[unsafe_load(A.x,i) for i=1:nnz])
 end
 
-spasm(x::Ptr{spasm}) = (A = unsafe_load(x,1); finalizer(csr_free,A); A)
+spasm(x::Ptr{spasm}) = (A = unsafe_load(x,1); @ccall free(x::Ptr{Cvoid})::Cvoid; finalizer(csr_free1,A); A)
 
 permutation(x) = (x == nothing ? C_NULL : isa(Vector{Cint},x) ? pointer(x) : error("$x should be nothing or a permutation{Cint}"))
 
@@ -69,7 +69,7 @@ csr_resize(A::spasm,m,n) = @ccall spasm_lib."spasm_csr_resize"(pointer_from_objr
 
 csr_free(A::spasm) = @ccall spasm_lib."spasm_csr_free"(pointer_from_objref(A)::Ptr{spasm})::Cvoid
 
-# sometimes, we should not directly call csr_free because the spasm structure itself belongs to Julia
+# usually, we should not directly call csr_free because the spasm structure itself belongs to Julia
 csr_free1(A::spasm) = (@ccall free(A.p::Ptr{Cvoid})::Cvoid; @ccall free(A.j::Ptr{Cvoid})::Cvoid; @ccall free(A.x::Ptr{Cvoid})::Cvoid)
 
 # declared, not defined
