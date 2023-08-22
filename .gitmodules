@@ -1,0 +1,3 @@
+[submodule "deps/spasm"]
+	path = deps/spasm
+	url = https://github.com/cbouilla/spasm
