@@ -5,6 +5,8 @@ using SparseArrays, Libdl
 import Base: unsafe_convert
 import SparseArrays: nnz
 
+export spasm, kernel
+
 const spasm_lib = const LIB_FILE = "$(@__DIR__)" * "/../deps/spasm/src/.libs/libspasm." * Libdl.dlext
 
 struct GFp v::Cuint end
@@ -17,8 +19,9 @@ Base.zero(::Type{GFp}) = GFp(0)
 Base.one(::GFp) = GFp(1)
 Base.one(::Type{GFp}) = GFp(1)
 Base.show(io::IO,x::GFp) = print(io,"\e[1m",x.v,"\e[0m")
-Cuint(x::GFp) = x.v
-Int(x::GFp) = Int(x.v)
+Base.Cuint(x::GFp) = x.v
+Base.Int(x::GFp) = Int(x.v)
+Base.Int32(x::GFp) = Int32(x.v)
 
 mutable struct spasm
     nzmax::Cint
@@ -39,7 +42,6 @@ mutable struct spasm
             unsafe_store!(spasmA.j,A.rowval[i]-1,i)
             unsafe_store!(spasmA.x,mod(A.nzval[i],prime),i)
         end
-        finalizer(csr_free1,spasmA)
         spasmA
     end
 end
@@ -50,7 +52,16 @@ Base.size(A::spasm) = (A.n,A.m)
 
 function SparseArrays.sparse(A::spasm)
     nnz = unsafe_load(A.p,A.n+1)
-    SparseMatrixCSC{GFp,Int}(A.m,A.n,[Int(unsafe_load(A.p,i))+1 for i=1:A.n+1],[Int(unsafe_load(A.j,i))+1 for i=1:nnz],[unsafe_load(A.x,i) for i=1:nnz])
+    colptr = [Int(unsafe_load(A.p,i))+1 for i=1:A.n+1]
+    rowval = [Int(unsafe_load(A.j,i))+1 for i=1:nnz]
+    nzval = [unsafe_load(A.x,i) for i=1:nnz]
+    for i=1:A.n
+        range = colptr[i]:colptr[i+1]-1
+        p = sortperm(view(rowval,range))
+        permute!(view(rowval,range),p)
+        permute!(view(nzval,range),p)
+    end
+    SparseMatrixCSC{GFp,Int}(A.m,A.n,colptr,rowval,nzval)
 end
 
 spasm(x::Ptr{spasm}) = (A = unsafe_load(x,1); @ccall free(x::Ptr{Cvoid})::Cvoid; finalizer(csr_free1,A); A)
