@@ -1,75 +1,7 @@
-/* indent -nfbs -i2 -nip -npsl -di0 -nut spasm_triangular.c */
+#include <stdlib.h>
 #include <assert.h>
+
 #include "spasm.h"
-
-#ifdef SPASM_TIMING
-#include "cycleclock.h"
-uint64_t reach = 0, scatter = 0;
-#endif
-
-
-int spasm_is_upper_triangular(const spasm * A) {
-	int i, p, n, m, *Aj, *Ap;
-	spasm_GFp *Ax;
-
-	n = A->n;
-	m = A->m;
-	if (n > m) {
-		return 0;
-	}
-	Ap = A->p;
-	Aj = A->j;
-	Ax = A->x;
-	for (i = 0; i < n; i++) {
-		/* check diagonal */
-		if (Aj[Ap[i]] != i) {
-			return 0;
-		}
-		if (Ax[Ap[i]] != 1) {
-			return 0;
-		}
-		/* check other entries */
-		for (p = Ap[i] + 1; p < Ap[i + 1]; p++) {
-			if (Aj[p] < i) {
-				return 0;
-			}
-		}
-	}
-	return 1;
-}
-
-
-int spasm_is_lower_triangular(const spasm * A) {
-	int i, n, m, p, *Aj, *Ap;
-	spasm_GFp *Ax;
-
-	n = A->n;
-	m = A->m;
-	if (n < m) {
-		return 0;
-	}
-	Ap = A->p;
-	Aj = A->j;
-	Ax = A->x;
-	for (i = 0; i < m; i++) {
-
-		/* check diagonal */
-		if (Aj[Ap[i + 1] - 1] != i) {
-			return 0;
-		}
-		if (Ax[Ap[i + 1] - 1] == 0) {
-			return 0;
-		}
-		/* check other entries */
-		for (p = Ap[i]; p < Ap[i + 1] - 1; p++) {
-			if (Aj[p] > i) {
-				return 0;
-			}
-		}
-	}
-	return 1;
-}
-
 
 /*
  * Solving triangular systems, dense RHS
@@ -90,32 +22,27 @@ int spasm_is_lower_triangular(const spasm * A) {
  * p[j] == i indicates if the "diagonal" entry on column j is on row i
  * 
  */
-void spasm_dense_back_solve(const spasm * L, spasm_GFp * b, spasm_GFp * x, const int *p) {
-	int i, j, n, m, *Lp, *Lj, prime;
-	spasm_GFp *Lx;
-
+void spasm_dense_back_solve(const spasm *L, spasm_GFp *b, spasm_GFp *x, const int *p)
+{
 	/* check inputs */
 	assert(b != NULL);
 	assert(x != NULL);
 	assert(L != NULL);
+	int n = L->n;
+	int m = L->m;
+	const i64 *Lp = L->p;
+	const int *Lj = L->j;
+	const spasm_GFp *Lx = L->x;
+	int prime = L->prime;
 
-	n = L->n;
-	m = L->m;
-	Lp = L->p;
-	Lj = L->j;
-	Lx = L->x;
-	prime = L->prime;
-
-	for (i = 0; i < n; i++) {
+	for (int i = 0; i < n; i++)
 		x[i] = 0;
-	}
 
-	for (j = m - 1; j >= 0; j--) {
-		i = (p != SPASM_IDENTITY_PERMUTATION) ? p[j] : j;
+	for (int j = m - 1; j >= 0; j--) {
+		int i = (p != SPASM_IDENTITY_PERMUTATION) ? p[j] : j;
 
 		/* pivot on the j-th column is on the i-th row */
 		const spasm_GFp diagonal_entry = Lx[Lp[i + 1] - 1];
-		//assert(diagonal_entry == 1);
 
 		/* axpy - inplace */
 		x[i] = (b[j] * spasm_GFp_inverse(diagonal_entry, prime)) % prime;
@@ -141,30 +68,24 @@ void spasm_dense_back_solve(const spasm * L, spasm_GFp * b, spasm_GFp * x, const
  * 
  * returns SPASM_SUCCESS or SPASM_NO_SOLUTION
  */
-int spasm_dense_forward_solve(const spasm * U, spasm_GFp * b, spasm_GFp * x, const int *q) {
-	int i, j, n, m, *Up, *Uj, prime;
-	spasm_GFp *Ux;
-
+int spasm_dense_forward_solve(const spasm * U, spasm_GFp *b, spasm_GFp *x, const int *q)
+{
 	/* check inputs */
 	assert(b != NULL);
 	assert(x != NULL);
 	assert(U != NULL);
-
-	n = U->n;
-	m = U->m;
+	int n = U->n;
+	int m = U->m;
 	assert(n <= m);
-
-	Up = U->p;
-	Uj = U->j;
-	Ux = U->x;
-	prime = U->prime;
-
-	for (i = 0; i < n; i++) {
+	const i64 *Up = U->p;
+	const int *Uj = U->j;
+	const spasm_GFp *Ux = U->x;
+	int prime = U->prime;
+	for (int i = 0; i < n; i++)
 		x[i] = 0;
-	}
 
-	for (i = 0; i < n; i++) {
-		j = (q != SPASM_IDENTITY_PERMUTATION) ? q[i] : i;
+	for (int i = 0; i < n; i++) {
+		int j = (q != SPASM_IDENTITY_PERMUTATION) ? q[i] : i;
 		if (b[j] != 0) {
 			/* check diagonal entry */
 			const spasm_GFp diagonal_entry = Ux[Up[i]];
@@ -176,189 +97,159 @@ int spasm_dense_forward_solve(const spasm * U, spasm_GFp * b, spasm_GFp * x, con
 			b[j] = 0;
 		}
 	}
-
-	for (i = 0; i < m; i++) {
-		if (b[i] != 0) {
+	for (int i = 0; i < m; i++) 
+		if (b[i] != 0)
 			return SPASM_NO_SOLUTION;
-		}
-	}
-
 	return SPASM_SUCCESS;
 }
 
-
-
-/*************** Triangular solving with sparse RHS
+/*
+ * solve x * U = B[k], where U is (permuted) triangular (either upper or lower).
  *
- * solve x * U = B[k], where U is (permuted) upper triangular.
+ * x must have size m (#columns of U); it does not need to be initialized.
+ * xj must be preallocated of size 3*m and zero-initialized (it remains OK)
+ * qinv locates the pivots in U.
  *
- * x has size m (number of columns of U, paradoxically).
+ * On output, the solution is scattered in x, and its pattern is given in xj[top:m].
+ * The precise semantics is as follows. Define:
+ *         x_a = { j in [0:m] : qinv[j] < 0 }
+ *         x_b = { j in [0:m] : qinv[j] >= 0 }
+ * Then x_b * U + x_a == B[k].  It follows that x * U == y has a solution iff x_a is empty.
+ * 
+ * top is the return value
  *
- * when this function returns, the solution is scattered in x, and its pattern
- * is given in xj[top : m].
- *
- * xj must be zero-initialized on the first call (and it stays OK)
- * x does not need to be initialized.
- *
- * top is the return value.
+ * This does not require the pivots to be the first entry of the row.
+ * This requires that the pivots in U are all equal to 1. 
  */
-int spasm_sparse_forward_solve(const spasm * U, const spasm * B, int k, int *xj, spasm_GFp * x, const int *qinv) {
-	int top, m, prime, *Up, *Uj, *Bp, *Bj;
-	spasm_GFp *Ux, *Bx;
+int spasm_sparse_triangular_solve(const spasm *U, const spasm *B, int k, int *xj, spasm_GFp * x, const int *qinv)
+{
+	int m = U->m;
+	const i64 *Up = U->p;
+	const int *Uj = U->j;
+	const spasm_GFp *Ux = U->x;
+	int prime = U->prime;
+	const i64 *Bp = B->p;
+	const int *Bj = B->j;
+	const spasm_GFp *Bx = B->x;
 
-#ifdef SPASM_TIMING
-	uint64_t start;
-#endif
+	/* compute non-zero pattern of x --- xj[top:m] = Reach(U, B[k]) */
+	int top = spasm_reach(U, B, k, m, xj, qinv);
 
-	m = U->m;
-	Up = U->p;
-	Uj = U->j;
-	Ux = U->x;
-	prime = U->prime;
-
-	Bp = B->p;
-	Bj = B->j;
-	Bx = B->x;
-
-#ifdef SPASM_TIMING
-	start = spasm_ticks();
-#endif
-
-	/* xj[top : m] = Reach(U, B[k]) */
-	top = spasm_reach(U, B, k, m, xj, qinv);
-
-#ifdef SPASM_TIMING
-	reach += spasm_ticks() - start;
-#endif
-
-	/* clear x */
-	for (int px = top; px < m; px++)
-		x[xj[px]] = 0;
-
-	/* scatter B[k] into x */
-	for (int px = Bp[k]; px < Bp[k + 1]; px++)
-		x[Bj[px]] = Bx[px];
-
-#ifdef SPASM_TIMING
-	start = spasm_ticks();
-#endif
+	/* clear x and scatter B[k] into x*/
+	for (int px = top; px < m; px++) {
+		int j = xj[px];
+		x[j] = 0;
+	}
+	for (i64 px = Bp[k]; px < Bp[k + 1]; px++) {
+		int j = Bj[px];
+		x[j] = Bx[px];
+	}
 
 	/* iterate over the (precomputed) pattern of x (= the solution) */
 	for (int px = top; px < m; px++) {
-		/* x[j] is nonzero */
-		int j = xj[px];
+		int j = xj[px];          /* x[j] is generically nonzero, (i.e., barring numerical cancelation) */
 
 		/* locate corresponding pivot if there is any */
 		int i = (qinv != NULL) ? (qinv[j]) : j;
 		if (i < 0)
 			continue;
 
-		/*
-		 * the pivot entry on row i is 1, so we just have to multiply
-		 * by -x[j]
-		 */
-		assert(Ux[Up[i]] == 1);
-		spasm_scatter(Uj, Ux, Up[i] + 1, Up[i + 1], prime - x[j], x, prime);
+		/* the pivot entry on row i is 1, so we just have to multiply by -x[j] */
+		spasm_GFp backup = x[j];
+		spasm_scatter(Uj, Ux, Up[i], Up[i + 1], prime - x[j], x, prime);
+		assert(x[j] == 0);
+		x[j] = backup;
 	}
-
-#ifdef SPASM_TIMING
-	scatter += spasm_ticks() - start;
-#endif
-
 	return top;
 }
 
-
-
-/*************** Triangular solving with sparse RHS
- *
- * solve x * L = B[k], where L is (permuted) lower triangular.
- *
- * x has size m (number of columns of L).
- *
- * when this function returns, the solution is scattered in x, and its pattern
- * is given in xi[top : n].
- *
- * top is the return value.
- *
+/*
+ * Solves X * U == B
+ * Serious similarity with spasm_schur, spasm_rref, spasm_kernel, ...
  */
-int spasm_sparse_backward_solve(const spasm * L, const spasm * B, int k, int *xi, spasm_GFp * x, const int *pinv, int r_bound) {
-	int i, I, p, px, top, n, m, prime, *Lp, *Lj, *Bp, *Bj, tmp;
-	spasm_GFp *Lx, *Bx;
+spasm *spasm_trsm(const spasm *U, const int *qinv, const spasm *B)
+{
+	assert(U->m == B->m);
+	int m = B->m;
+	int n = B->n;
+	spasm *X = spasm_csr_alloc(n, m, spasm_nnz(B), B->prime, SPASM_WITH_NUMERICAL_VALUES);
+	i64 *Xp = X->p;
+	int *Xj = X->j;
+	spasm_GFp *Xx = X->x;
+	i64 nnz = 0;      /* nnz in X at the moment */
+	int Xn = 0;       /* #rows in X at the moment */
+	int writing = 0;
+	double start = spasm_wtime();
 
-#ifdef SPASM_TIMING
-	uint64_t start;
-#endif
+	#pragma omp parallel
+	{
+		spasm_GFp *x = spasm_malloc(m * sizeof(spasm_GFp));
+		int *xj = spasm_malloc(3 * m * sizeof(int));
+		spasm_vector_zero(xj, 3 * m);
+		int tid = spasm_get_thread_num();
 
-	assert(L != NULL);
-	assert(B != NULL);
-	assert(xi != NULL);
-	assert(x != NULL);
+		#pragma omp for schedule(guided)
+		for (int i = 0; i < n; i++) {
+			int top = spasm_sparse_triangular_solve(U, B, i, xj, x, qinv);
 
-	n = L->n;
-	m = L->m;
-	Lp = L->p;
-	Lj = L->j;
-	Lx = L->x;
-	prime = L->prime;
+			int row_nnz = 0;             /* #nz coefficients in the row */
+			for (int px = top; px < m; px++) {
+				int j = xj[px];
+				if (x[j] == 0)
+					continue;
+				assert(qinv[j] >= 0);   /* otherwise, solution does not exist */
+				row_nnz += 1;
+			}
 
-	Bp = B->p;
-	Bj = B->j;
-	Bx = B->x;
+			int local_i;
+			i64 local_nnz;
+			#pragma omp critical(schur_complement)
+			{
+				/* enough room in X? */
+				if (nnz + row_nnz > X->nzmax) {
+					/* wait until other threads stop writing into it */
+					#pragma omp flush(writing)
+					while (writing > 0) {
+						#pragma omp flush(writing)
+					}
+					spasm_csr_realloc(X, 2 * X->nzmax + m);
+					Xj = X->j;
+					Xx = X->x;
+				}
+				/* save row Xn */
+				local_i = Xn;
+				Xn += 1;
+				local_nnz = nnz;
+				nnz += row_nnz;
+				#pragma omp atomic update
+				writing += 1;    /* register as a writing thread */
+			}
+			
+			/* write the new row in X */
+			for (int px = top; px < m; px++) {
+				int j = xj[px];
+				if (x[j] == 0)
+					continue;
+				Xj[local_nnz] = qinv[j];
+				Xx[local_nnz] = x[j];
+				local_nnz += 1;
+			}
+			Xp[local_i + 1] = local_nnz;
 
-#ifdef SPASM_TIMING
-	start = spasm_ticks();
-#endif
-	/* xi[top : m] = Reach( L, B[k] ) */
-	top = spasm_reach(L, B, k, n, xi, pinv);
+			#pragma omp atomic update
+			writing -= 1;        /* unregister as a writing thread */
 
-#ifdef SPASM_TIMING
-	reach += spasm_ticks() - start;
-#endif
-
-	/* clear x */
-	for (p = top; p < n; p++) {
-		x[xi[p]] = 0;
-	}
-
-	/* scatter B[k] into x */
-	for (p = Bp[k]; p < Bp[k + 1]; p++) {
-		x[Bj[p]] = Bx[p];
-	}
-
-	/* iterate over the (precomputed) pattern of x (= the solution) */
-#ifdef SPASM_TIMING
-	start = spasm_ticks();
-#endif
-
-	for (px = top; px < n; px++) {
-		/* x[i] is nonzero */
-		i = xi[px];
-
-		/* i maps to row I of L */
-		I = (pinv == SPASM_IDENTITY_PERMUTATION) ? i : pinv[i];
-
-		if (i >= m) {
-			/* column I is part of an implicit identity matrix */
-			spasm_scatter(Lj, Lx, Lp[I], Lp[I + 1], prime - x[i], x, prime);
-		} else if (i >= r_bound) {
-			/* get L[i,i] */
-			const spasm_GFp diagonal_entry = Lx[Lp[I + 1] - 1];
-			assert(diagonal_entry != 0);
-			/* axpy-in-place */
-			x[i] = (x[I] * spasm_GFp_inverse(diagonal_entry, prime)) % prime;
-			spasm_scatter(Lj, Lx, Lp[I], Lp[I + 1] - 1, prime - x[i], x, prime);
+			if (tid == 0) {
+				fprintf(stderr, "\r[trsm] %d/%d [%" PRId64 " nz]", Xn, n, nnz);
+				fflush(stderr);
+			}
 		}
-		xi[px] = I;
-		tmp = x[i];
-		x[i] = 0;
-		x[xi[px]] = tmp;
-
+		free(x);
+		free(xj);
 	}
-
-#ifdef SPASM_TIMING
-	scatter += spasm_ticks() - start;
-#endif
-
-	return top;
+	/* finalize X */
+	spasm_csr_realloc(X, -1);
+	double density = 1.0 * nnz / (1.0 * m * n);
+	fprintf(stderr, "\r[trsm] %d * %d [%" PRId64 " nz / density= %.3f], %.1fs\n", n, m, nnz, density, spasm_wtime() - start);
+	return X;
 }
