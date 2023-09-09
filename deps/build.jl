@@ -2,7 +2,7 @@ using Libdl
 
 cd("..") do
     try
-        run(`git subtree pull --prefix=deps/spasm https://github.com/cbouilla/spasm master`)
+        run(`git subtree pull --prefix=deps/spasm -m "merging spasm" https://github.com/cbouilla/spasm master`)
     catch
         @warn "I'm experiencing problems with `git subtree pull`; cross your fingers"
     end

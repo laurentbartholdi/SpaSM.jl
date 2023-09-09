@@ -287,11 +287,22 @@ end
 
 const spasm_kernel_app = "$(@__DIR__)" * "/../deps/spasm/build/tools/kernel"
 
-function sparse_kernel(A,prime = 42013,block_size = 166000,num_threads = Threads.nthreads())
+function sparse_kernel_external(A,prime = 42013,block_size = 166000,num_threads = Threads.nthreads())
     input_mat = mat_to_buffer(A)
     output_mat = IOBuffer()
     run(pipeline(addenv(`$spasm_kernel_app --modulus $prime --dense-block-size $block_size`,"OMP_NUM_THREADS"=>num_threads),stdin=seekstart(input_mat),stdout=output_mat))
     string_to_mat(seekstart(output_mat) |> readavailable |> String)
 end
+
+# one-stop shop for kernel computation
+function parse_echelonize_opts(optlist)
+    opts = echelonize_opts()
+    for nv = optlist
+        setproperty!(opts,nv...)
+    end
+    opts
+end
+
+kernel(A::spasm{prime}; opts...) where prime = kernel(echelonize(A,opts=parse_echelonize_opts(opts))...)
 
 end
