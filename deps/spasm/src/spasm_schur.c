@@ -41,7 +41,8 @@ double spasm_schur_estimate_density(const spasm *A, const int *p, int n, const s
 		/* per-thread scratch space */
 		spasm_GFp *x = spasm_malloc(m * sizeof(*x));
 		int *xj = spasm_malloc(3 * m * sizeof(*xj));
-		spasm_vector_zero(xj, 3 * m);
+		for (int j = 0; j < 3 * m; j++)
+			xj[j] = 0;
 
 		#pragma omp for reduction(+:nnz) schedule(dynamic)
 		for (int i = 0; i < R; i++) {
@@ -74,6 +75,7 @@ double spasm_schur_estimate_density(const spasm *A, const int *p, int n, const s
 spasm *spasm_schur(const spasm *A, const int *p, int n, const spasm *U, const int *qinv, double est_density, int keep_L, int *p_out)
 {
 	assert(!keep_L); /* option presently unsupported */
+	(void) p_out;
 	
 	int m = A->m;
 	int verbose_step = spasm_max(1, n / 1000);
@@ -93,9 +95,10 @@ spasm *spasm_schur(const spasm *A, const int *p, int n, const spasm *U, const in
 
 	#pragma omp parallel
 	{
-		spasm_GFp *x = spasm_malloc(m * sizeof(spasm_GFp));
-		int *xj = spasm_malloc(3 * m * sizeof(int));
-		spasm_vector_zero(xj, 3 * m);
+		spasm_GFp *x = spasm_malloc(m * sizeof(*x));
+		int *xj = spasm_malloc(3 * m * sizeof(*xj));
+		for (int j = 0; j < 3 * m; j++)
+			xj[j] = 0;
 		int tid = spasm_get_thread_num();
 
 		#pragma omp for schedule(dynamic, verbose_step)
@@ -199,7 +202,8 @@ int spasm_schur_dense(const spasm *A, const int *p, int n, const spasm *U, const
 		/* per-thread scratch space */
 		spasm_GFp *x = spasm_malloc(m * sizeof(*x));
 		int *xj = spasm_malloc(3 * m * sizeof(*xj));
-		spasm_vector_zero(xj, 3 * m);
+		for (int j = 0; j < 3 * m; j++)
+			xj[j] = 0;
 		int tid = spasm_get_thread_num();
 
 		#pragma omp for schedule(dynamic, verbose_step)
@@ -238,6 +242,7 @@ int spasm_schur_dense(const spasm *A, const int *p, int n, const spasm *U, const
 
 /*
  * Computes N random linear combinations rows of the Schur complement of (P*A)[0:n] w.r.t. U.
+ * Assumes that pivots are first entries of the row
  * if w > 0, take random linear combinations of subsets of w rows, 
  *    otherwise, take random linear combinations of all the rows
  * S must be preallocated of dimension N * (A->m - U->n)
@@ -250,12 +255,12 @@ void spasm_schur_dense_randomized(const spasm *A, const int *p, int n, const spa
 	assert(p != NULL);
 	int m = A->m;
 	int Sm = m - U->n;
-	const i64 *Ap = A->p;
-	const int *Aj = A->j;
-	const spasm_GFp *Ax = A->x;
+	// const i64 *Ap = A->p;
+	// const int *Aj = A->j;
+	// const spasm_GFp *Ax = A->x;
 	const i64 *Up = U->p;
 	const int *Uj = U->j;
-	const spasm_GFp *Ux = U->x;
+	// const spasm_GFp *Ux = U->x;
 	prepare_q(m, qinv, q);
 	fprintf(stderr, "[schur/dense/random] dimension %d x %d, weight %d...\n", N, Sm, w);
 	double start = spasm_wtime();
@@ -267,8 +272,8 @@ void spasm_schur_dense_randomized(const spasm *A, const int *p, int n, const spa
 		/* per-thread scratch space */
 		spasm_GFp *x = spasm_malloc(m * sizeof(*x));
 		int *xj = spasm_malloc(3 * m * sizeof(*xj));
-		spasm_vector_zero(xj, 3 * m);
-		// int tid = spasm_get_thread_num();
+		for (int j = 0; j < 3 * m; j++)
+			xj[j] = 0;
 
 		#pragma omp for schedule(dynamic, verbose_step)
 		for (i64 k = 0; k < N; k++) {
@@ -279,13 +284,13 @@ void spasm_schur_dense_randomized(const spasm *A, const int *p, int n, const spa
 				for (int i = 0; i < n; i++) {
 					int inew = p[i];
 					int coeff = rand() % prime;
-					spasm_scatter(Aj, Ax, Ap[inew], Ap[inew + 1], coeff, x, prime);
+					spasm_scatter(A, inew, coeff, x);
 				}
 			} else {
 				for (int i = 0; i < w; i++) {
 					int inew = p[rand() % n];
 					int coeff = (i == 0) ? 1 : rand() % prime;
-					spasm_scatter(Aj, Ax, Ap[inew], Ap[inew + 1], coeff, x, prime);
+					spasm_scatter(A, inew, coeff, x);
 				}
 			}
 
@@ -294,7 +299,7 @@ void spasm_schur_dense_randomized(const spasm *A, const int *p, int n, const spa
 				int j = Uj[Up[i]];
 				if (x[j] == 0)
 					continue;
-				spasm_scatter(Uj, Ux, Up[i], Up[i + 1], prime - x[j], x, prime);
+				spasm_scatter(U, i, prime - x[j], x);
 			}
 			
 			/* gather x into S[k] */

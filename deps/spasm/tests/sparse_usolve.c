@@ -27,12 +27,14 @@ int main(int argc, char **argv)
         spasm_triplet_free(T);
 
         int *xi = spasm_malloc(3*m * sizeof(*xi));
-        spasm_vector_zero(xi, 3*m);
-
+        for (int j = 0; j < 3*m; j++)
+                xi[j] = 0;
         spasm_GFp *x = malloc(m * sizeof(*x));
         spasm_GFp *y = malloc(m * sizeof(*y));
-        spasm_vector_zero(x, m);
-        spasm_vector_zero(y, m);
+        for (int j = 0; j < m; j++) {
+                x[j] = 0;
+                y[j] = 0;
+        }
         int *qinv = malloc(m * sizeof(int));
         for (int j = 0; j < n; j++)
                 qinv[j] = j;
@@ -45,7 +47,7 @@ int main(int argc, char **argv)
         for (int j = n; j < m; j++)
                 y[j] = (y[j] + x[j]) % B->prime;
 
-        spasm_scatter(B->j, B->x, B->p[0], B->p[1], B->prime - 1, y, B->prime);
+        spasm_scatter(B, 0, B->prime - 1, y);
 
         for (int i = 0; i < m; i++)
                 if (y[i] != 0) {

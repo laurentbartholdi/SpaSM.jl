@@ -28,12 +28,15 @@ int main(int argc, char **argv)
         spasm_triplet_free(T);
 
         int *xi = spasm_malloc(3*m * sizeof(*xi));
-        spasm_vector_zero(xi, 3*m);
+        for (int j = 0; j < 3 * m; j++)
+                xi[j] = 0;
 
         spasm_GFp *x = malloc(n * sizeof(*x));
         spasm_GFp *y = malloc(m * sizeof(*y));
-        spasm_vector_zero(x, n);
-        spasm_vector_zero(y, m);
+        for (int j = 0; j < n; j++)
+                x[j] = 0;
+        for (int j = 0; j < m; j++)
+                y[j] = 0;
         int *qinv = malloc(m * sizeof(int));
         for (int j = 0; j < m; j++)
                 qinv[j] = j;
@@ -41,7 +44,7 @@ int main(int argc, char **argv)
 
         /* check solution */
         spasm_xApy(x, L, y);
-        spasm_scatter(B->j, B->x, B->p[0], B->p[1], prime - 1, y, prime);
+        spasm_scatter(B, 0, prime - 1, y);
         for (int i = 0; i < m; i++)
                 if (y[i] != 0) {
                         printf("not ok - sparse triangular L-solve (y[%d] == %d)\n", i, y[i]);
