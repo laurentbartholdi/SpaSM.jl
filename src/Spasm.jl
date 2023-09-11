@@ -1,6 +1,6 @@
 module Spasm
 
-using SparseArrays, Libdl
+using SparseArrays, Libdl, FileIO
 
 import Base: unsafe_convert
 import SparseArrays: nnz
@@ -14,7 +14,7 @@ Base.transpose(x::GFp) = x
 GFp(x::Integer,prime = 42013) = GFp{prime}(Cuint(mod(x,prime)))
 GFp{prime}(x::Signed) where prime = GFp{prime}(Cuint(mod(x,prime)))
 GFp(x::GFp) = x
-Base.convert(T::Type{GFp{prime}},x) where prime = T(x)
+#Base.convert(T::Type{GFp{prime}},x) where prime = T(x)
 Base.convert(::Type{Int},x::GFp) = Int(x.v)
 Base.zero(x::GFp) = typeof(x)(0)
 Base.zero(T::Type{GFp{prime}}) where prime = T(0)
@@ -24,8 +24,16 @@ Base.show(io::IO,x::GFp) = print(io,"\e[1m",x.v,"\e[0m")
 Base.Cuint(x::GFp) = x.v
 Base.Int(x::GFp) = Int(x.v)
 Base.Int32(x::GFp) = Int32(x.v)
+Base.Int16(x::GFp{prime}) where prime = 2*Int(x.v)>prime ? Int16(x.v-prime) : Int16(x.v)
 Base.:(*)(x::GFp{prime},y::GFp{prime}) where prime = GFp{prime}(mod(Int64(x.v)*y.v,prime))
 Base.:(+)(x::GFp{prime},y::GFp{prime}) where prime = GFp{prime}(mod(Int64(x.v)+y.v,prime))
+Base.:(-)(x::GFp{prime},y::GFp{prime}) where prime = GFp{prime}(mod(Int64(x.v)-y.v,prime))
+Base.:(-)(x::GFp{prime}) where prime = GFp{prime}(mod(prime-x.v,prime))
+Base.:(/)(x::GFp{prime},y::GFp{prime}) where prime = x*inv(v)
+Base.:(*)(x::GFp,y::Bool) = y ? x : zero(x)
+Base.:(*)(x::Bool,y::GFp) = x ? y : zero(y)
+Base.:(*)(x::GFp,y::T) where T <: Integer = typeof(x)(x.v*y)
+Base.:(*)(x::T,y::GFp) where T <: Integer = typeof(y)(x*y.v)
 
 mutable struct spasm{prime}
     nzmax::Int64
@@ -35,19 +43,48 @@ mutable struct spasm{prime}
     j::Ptr{Int32} # 0-based column indices
     x::Ptr{GFp{prime}} # nonzeros
     prime__::Int32
-    function spasm(A::SparseMatrixCSC,prime = 42013) # actually create transposed matrix
-        nzmax = length(A.nzval)
-        m,n = size(A)
-        spasmA = csr_alloc(n,m,nzmax,prime,true)
-        for i=1:length(A.colptr)
-            unsafe_store!(spasmA.p,A.colptr[i]-1,i)
+end
+
+function spasm(A::SparseMatrixCSC{Tv,Ti},prime = 42013) where {Tv <: Integer,Ti} # actually create transposed matrix
+    nzmax = length(A.nzval)
+    m,n = size(A)
+    spasmA = csr_alloc(n,m,nzmax,prime,true)
+    nnz = 0
+    spasmAx = convert(Ptr{Cuint},spasmA.x)
+    for col=1:n
+        unsafe_store!(spasmA.p,nnz,col)
+        for i=A.colptr[col]:A.colptr[col+1]-1
+#            v = GFp{prime}(A.nzval[i]) # causes huge memory allocation
+            v = mod(A.nzval[i],prime)
+            if !iszero(v)
+                nnz += 1
+                unsafe_store!(spasmA.j,A.rowval[i]-1,nnz)
+#                unsafe_store!(spasmA.x,v,nnz)
+                unsafe_store!(spasmAx,v,nnz)
+            end
         end
-        for i=1:length(A.rowval)
-            unsafe_store!(spasmA.j,A.rowval[i]-1,i)
-            unsafe_store!(spasmA.x,mod(A.nzval[i],prime),i)
-        end
-        spasmA
     end
+    unsafe_store!(spasmA.p,nnz,n+1)
+    spasmA
+end
+
+function spasm(A::SparseMatrixCSC{GFp{prime},Ti}) where {prime,Ti} # actually create transposed matrix
+    nzmax = length(A.nzval)
+    m,n = size(A)
+    spasmA = csr_alloc(n,m,nzmax,prime,true)
+    nnz = 0
+    for col=1:n
+        unsafe_store!(spasmA.p,nnz,col)
+        for i=A.colptr[col]:A.colptr[col+1]-1
+            if !iszero(A.nzval[i])
+                nnz += 1
+                unsafe_store!(spasmA.j,A.rowval[i]-1,nnz)
+                unsafe_store!(spasmA.x,A.nzval[i],nnz)
+            end
+        end
+    end
+    unsafe_store!(spasmA.p,nnz,n+1)
+    spasmA
 end
 
 Base.show(io::IO, A::spasm{prime}) where prime = (@assert prime==A.prime__; print(io,A.n,"×",A.m," Spasm matrix % ",A.prime__," with ",nnz(A)," (maximum ",A.nzmax,") non-zeros"))
@@ -232,17 +269,27 @@ kernel_from_rref(R::spasm{prime},column_permutation = nothing) where prime = spa
 
 # helpers
 
-function mat_to_buffer(A::SparseMatrixCSC)
-    io = IOBuffer()
-    print(io,size(A,1)," ",size(A,2)," M\n")
-    for (i,j,v) = zip(findnz(A)...)
-        print(io,i," ",j," ",v,"\n")
-    end
-    print(io,"0 0 0\n")
-    io
+function load(f::File{format"SMS"})
+    open(f) do s; load(s) end
 end
 
-function readInt(str,pos)
+function load(s::Stream{format"SMS"})
+    read_sms(readuntil(s.io,'\0'))
+end
+    
+function save(f::File{format"SMS"}, A::SparseMatrixCSC)
+    open(f, "w") do s; save(s, A) end
+end
+
+function save(s::Stream{format"SMS"}, A::SparseMatrixCSC)
+    write(s,string(size(A,1))," ",string(size(A,2))," M\n")
+    for (i,j,v) = zip(findnz(A)...)
+        write(s,string(i)," ",string(j)," ",string(v),"\n")
+    end
+    write(s,"0 0 0\n")
+end
+
+function read_Int(str,pos) # much faster than parse
     v = 0
     neg = false
     while !isdigit(str[pos])
@@ -261,27 +308,22 @@ function readInt(str,pos)
     end
 end
 
-function string_to_mat(str)
+function read_sms(str::AbstractString)
     pos = 1
-    (m,pos) = readInt(str,pos)
-    (n,pos) = readInt(str,pos)
+    (m,pos) = read_Int(str,pos)
+    (n,pos) = read_Int(str,pos)
+    # silently skip over the "M"
     Is = Int[]
     Js = Int[]
     Vs = Int[]
     while true
-        (i,pos) = readInt(str,pos)
-        (j,pos) = readInt(str,pos)
-        (v,pos) = readInt(str,pos)
+        (i,pos) = read_Int(str,pos)
+        (j,pos) = read_Int(str,pos)
+        (v,pos) = read_Int(str,pos)
         i == 0 && return sparse(Is,Js,Vs,m,n)
         push!(Is,i)
         push!(Js,j)
         push!(Vs,v)
-    end
-end
-
-function file_to_mat(file)
-    open(file,"r") do f
-        string_to_mat(readuntil(f,'\0'))
     end
 end
 
@@ -304,5 +346,7 @@ function parse_echelonize_opts(optlist)
 end
 
 kernel(A::spasm{prime}; opts...) where prime = kernel(echelonize(A,opts=parse_echelonize_opts(opts))...)
+
+rank(A::spasm{prime}; opts...) where prime = count(≥(0),echelonize(A,opts=parse_echelonize_opts(opts))[2])
 
 end

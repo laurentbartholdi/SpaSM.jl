@@ -4,7 +4,7 @@ authors = ["Laurent Bartholdi <laurent.bartholdi@gmail.com>"]
 version = "0.1.2"
 
 [deps]
-JLD = "4138dd39-2aa7-5051-a626-17a0bb65d9c8"
+FileIO = "5789e2e9-d7fb-5bc7-8068-2c6fae9b9549"
 Libdl = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
