@@ -257,7 +257,18 @@ int spasm_ffpack_echelonize(int prime, int n, int m, double *A, int ldA, size_t 
 # spasm_echelonize
 echelonize_opts(opts = echelonize_opts((0 for _=1:11)...)) = (@ccall spasm_lib."spasm_echelonize_init_opts"(pointer_from_objref(opts)::Ptr{echelonize_opts})::Cvoid; opts)
 
-echelonize(A::spasm{prime}, Uqinv = Vector{Int32}(undef,A.m); opts = echelonize_opts()) where prime = (U = spasm(@ccall spasm_lib."spasm_echelonize"(pointer_from_objref(A)::Ptr{spasm{prime}},pointer(Uqinv)::Ptr{Int32},pointer_from_objref(opts)::Ptr{echelonize_opts})::Ptr{spasm{prime}}); (U,Uqinv))
+function parse_echelonize_opts(kwargs)
+    keys(kwargs)==(:echelonize_opts,) && return kwargs.echelonize_opts::echelonize_opts
+    
+    opts = echelonize_opts()
+    for nv = kwargs
+        setproperty!(opts,nv...)
+    end
+    opts
+end
+
+
+echelonize(A::spasm{prime}, Uqinv = Vector{Int32}(undef,A.m); kwargs...) where prime = (U = spasm(@ccall spasm_lib."spasm_echelonize"(pointer_from_objref(A)::Ptr{spasm{prime}},pointer(Uqinv)::Ptr{Int32},pointer_from_objref(parse_echelonize_opts(kwargs))::Ptr{echelonize_opts})::Ptr{spasm{prime}}); (U,Uqinv))
 
 # spasm_rref.c
 rref(U::spasm{prime},Uqinv = nothing, Rqinv = Vector{Int32}(undef,U.m)) where prime = (R = spasm(@ccall spasm_lib."spasm_rref"(pointer_from_objref(U)::Ptr{spasm{prime}},permutation(Uqinv)::Ptr{Int32},Rqinv::Ptr{Int32})::Ptr{spasm{prime}}); (R,Rqinv))
@@ -329,7 +340,7 @@ end
 
 const spasm_kernel_app = "$(@__DIR__)" * "/../deps/spasm/build/tools/kernel"
 
-function sparse_kernel_external(A,prime = 42013,block_size = 166000,num_threads = Threads.nthreads())
+function sparse_kernel_external(A,prime = 42013,dense_block_size = 166000,num_threads = Threads.nthreads())
     input_mat = mat_to_buffer(A)
     output_mat = IOBuffer()
     run(pipeline(addenv(`$spasm_kernel_app --modulus $prime --dense-block-size $block_size`,"OMP_NUM_THREADS"=>num_threads),stdin=seekstart(input_mat),stdout=output_mat))
@@ -337,16 +348,8 @@ function sparse_kernel_external(A,prime = 42013,block_size = 166000,num_threads 
 end
 
 # one-stop shop for kernel computation
-function parse_echelonize_opts(optlist)
-    opts = echelonize_opts()
-    for nv = optlist
-        setproperty!(opts,nv...)
-    end
-    opts
-end
+kernel(A::spasm{prime}; kwargs...) where prime = kernel(echelonize(A; kwargs...)...)
 
-kernel(A::spasm{prime}; opts...) where prime = kernel(echelonize(A,opts=parse_echelonize_opts(opts))...)
-
-rank(A::spasm{prime}; opts...) where prime = count(≥(0),echelonize(A,opts=parse_echelonize_opts(opts))[2])
+rank(A::spasm{prime}; kwargs...) where prime = count(≥(0),echelonize(A; kwargs...)[2])
 
 end
