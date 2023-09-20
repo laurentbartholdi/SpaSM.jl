@@ -4,33 +4,14 @@
 
 #include "spasm.h"
 
-/* make pivotal rows of A unitary. FIXME: why is this not static? */
-void spasm_make_pivots_unitary(spasm *A, const int *p, const int npiv)
-{
-	int prime = A->prime;
-	const i64 *Ap = A->p;
-	spasm_GFp *Ax = A->x;
-
-	#pragma omp parallel for
-	for (int i = 0; i < npiv; i++) {
-		int inew = p ? p[i] : i;
-		i64 p = Ap[inew];
-		spasm_GFp diag = Ax[p];
-		if (diag == 1)
-			continue;
-		spasm_GFp alpha = spasm_GFp_inverse(diag, prime);
-		for (i64 px = Ap[inew]; px < Ap[inew + 1]; px++)
-			Ax[px] = (alpha * Ax[px]) % prime;
-	}
-}
-
 /*
  * Samples R rows at random in the schur complement of (P*A)[0:n] w.r.t. U, and return the average density.
  * qinv locates the pivots in U.
  */
 double spasm_schur_estimate_density(const spasm *A, const int *p, int n, const spasm *U, const int *qinv, int R)
 {
-	assert(p != NULL);
+	if (n == 0)
+		return 0;
 	int m = A->m;
 	i64 nnz = 0;
 	if (n == 0)
@@ -55,6 +36,7 @@ double spasm_schur_estimate_density(const spasm *A, const int *p, int n, const s
 					nnz += 1;
 			}
 		}
+
 		free(x);
 		free(xj);
 	}
@@ -63,7 +45,7 @@ double spasm_schur_estimate_density(const spasm *A, const int *p, int n, const s
 
 /*
  * Computes the Schur complement of (P*A)[0:n] w.r.t. U
- * The pivots must be the first entries on the rows.
+ * The pivots need not be the first entries on the rows.
  * The pivots must be unitary.	
  * This returns a sparse representation of S. 
  *
@@ -74,6 +56,7 @@ double spasm_schur_estimate_density(const spasm *A, const int *p, int n, const s
  */
 spasm *spasm_schur(const spasm *A, const int *p, int n, const spasm *U, const int *qinv, double est_density, int keep_L, int *p_out)
 {
+	assert(p != NULL);
 	assert(!keep_L); /* option presently unsupported */
 	(void) p_out;
 	
@@ -103,7 +86,7 @@ spasm *spasm_schur(const spasm *A, const int *p, int n, const spasm *U, const in
 
 		#pragma omp for schedule(dynamic, verbose_step)
 		for (int i = 0; i < n; i++) {
-			int inew = (p != NULL) ? p[i] : i;
+			int inew = p[i];
 			int top = spasm_sparse_triangular_solve(U, A, inew, xj, x, qinv);
 
 			int row_nnz = 0;             /* #nz coefficients in the row */
@@ -186,7 +169,7 @@ static void prepare_q(int m, const int *qinv, int *q)
  * q must be preallocated of size at least (m - U->n).
  * on output, q sends columns of S to non-pivotal columns of A
  */
-int spasm_schur_dense(const spasm *A, const int *p, int n, const spasm *U, const int *qinv, double *S, int *q)
+int spasm_schur_dense(const spasm *A, const int *p, int n, const spasm *U, const int *qinv, FFPACK_carrier *S, int *q)
 {
 	assert(p != NULL);
 	int m = A->m;
@@ -250,17 +233,14 @@ int spasm_schur_dense(const spasm *A, const int *p, int n, const spasm *U, const
  * q must be preallocated of size at least (m - U->n).
  * on output, q sends columns of S to non-pivotal columns of A
  */
-void spasm_schur_dense_randomized(const spasm *A, const int *p, int n, const spasm *U, const int *qinv, double *S, int *q, int N, int w)
+void spasm_schur_dense_randomized(const spasm *A, const int *p, int n, const spasm *U, const int *qinv, FFPACK_carrier *S, int *q, int N, int w)
 {
 	assert(p != NULL);
+	assert(n > 0);
 	int m = A->m;
 	int Sm = m - U->n;
-	// const i64 *Ap = A->p;
-	// const int *Aj = A->j;
-	// const spasm_GFp *Ax = A->x;
 	const i64 *Up = U->p;
 	const int *Uj = U->j;
-	// const spasm_GFp *Ux = U->x;
 	prepare_q(m, qinv, q);
 	fprintf(stderr, "[schur/dense/random] dimension %d x %d, weight %d...\n", N, Sm, w);
 	double start = spasm_wtime();
@@ -271,9 +251,6 @@ void spasm_schur_dense_randomized(const spasm *A, const int *p, int n, const spa
 	{
 		/* per-thread scratch space */
 		spasm_GFp *x = spasm_malloc(m * sizeof(*x));
-		int *xj = spasm_malloc(3 * m * sizeof(*xj));
-		for (int j = 0; j < 3 * m; j++)
-			xj[j] = 0;
 
 		#pragma omp for schedule(dynamic, verbose_step)
 		for (i64 k = 0; k < N; k++) {
@@ -313,7 +290,6 @@ void spasm_schur_dense_randomized(const spasm *A, const int *p, int n, const spa
 			}
 		}
 		free(x);
-		free(xj);
 	}
 	fprintf(stderr, "\n[schur/dense/random] finished in %.1fs\n", spasm_wtime() - start);
 }

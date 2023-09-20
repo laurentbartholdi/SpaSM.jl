@@ -95,6 +95,7 @@ struct echelonize_opts {
 #define SPASM_SUCCESS 0
 #define SPASM_NO_SOLUTION 1
 
+typedef float FFPACK_carrier; /* a type holding GFp elements when passed to FFPACK */
 
 /* spasm_util.c */
 double spasm_wtime();
@@ -114,6 +115,7 @@ void spasm_dm_free(spasm_dm * P);
 // spasm *spasm_identity(int n, spasm_GFp prime);
 void spasm_human_format(int64_t n, char *target);
 int spasm_get_num_threads();
+void spasm_set_num_threads(int n);
 int spasm_get_thread_num();
 
 /* spasm_triplet.c */
@@ -163,11 +165,10 @@ int spasm_sparse_triangular_solve(const spasm *U, const spasm *B, int k, int *xj
 spasm *spasm_trsm(const spasm *U, const int *qinv, const spasm *B);
 
 /* spasm_schur.c */
-void spasm_make_pivots_unitary(spasm *A, const int *p, const int npiv);
 spasm *spasm_schur(const spasm * A, const int *p, int npiv, const spasm *U, const int *qinv, double est_density, int keep_L, int *p_out);
 double spasm_schur_estimate_density(const spasm * A, const int *p, int n, const spasm *U, const int *qinv, int R);
-int spasm_schur_dense(const spasm *A, const int *p, int k, const spasm *U, const int *qinv, double *S, int *q);
-void spasm_schur_dense_randomized(const spasm *A, const int *p, int n, const spasm *U, const int *qinv, double *S, int *q, int N, int w);
+int spasm_schur_dense(const spasm *A, const int *p, int k, const spasm *U, const int *qinv, FFPACK_carrier *S, int *q);
+void spasm_schur_dense_randomized(const spasm *A, const int *p, int n, const spasm *U, const int *qinv, FFPACK_carrier *S, int *q, int N, int w);
 
 /* spasm_solutions.c */
 // currently outdated
@@ -175,29 +176,29 @@ void spasm_schur_dense_randomized(const spasm *A, const int *p, int n, const spa
 // int spasm_LU_solve(spasm * A, const spasm_GFp * b, spasm_GFp * x);
 
 /* spasm_pivots.c */
-int spasm_find_pivots(spasm * A, int *p, int *qinv, struct echelonize_opts *opts);
-spasm * spasm_permute_pivots(const spasm *A, const int *p, int *qinv, int npiv);
+int spasm_pivots_extract_structural(const spasm *A, spasm *U, int *Uqinv, int *p, struct echelonize_opts *opts);
+
 
 /* spasm_matching.c */
-int spasm_maximum_matching(const spasm * A, int *jmatch, int *imatch);
+int spasm_maximum_matching(const spasm *A, int *jmatch, int *imatch);
 int *spasm_permute_row_matching(int n, const int *jmatch, const int *p, const int *qinv);
 int *spasm_permute_column_matching(int m, const int *imatch, const int *pinv, const int *q);
 int *spasm_submatching(const int *match, int a, int b, int c, int d);
-int spasm_structural_rank(const spasm * A);
+int spasm_structural_rank(const spasm *A);
 
 /* spasm_dm.c */
-spasm_dm *spasm_dulmage_mendelsohn(const spasm * A);
+spasm_dm *spasm_dulmage_mendelsohn(const spasm *A);
 
 /* spasm_scc.c */
-spasm_dm *spasm_strongly_connected_components(const spasm * A);
+spasm_dm *spasm_strongly_connected_components(const spasm *A);
 
 /* spasm_ffpack.cpp */
-void spasm_ffpack_setzero(int prime, int n, int m, double *A, int ldA);
-int spasm_ffpack_echelonize(int prime, int n, int m, double *A, int ldA, size_t *qinv);
+void spasm_ffpack_setzero(int prime, int n, int m, FFPACK_carrier *A, int ldA);
+int spasm_ffpack_echelonize(int prime, int n, int m, FFPACK_carrier *A, int ldA, size_t *qinv);
 
 /* spasm_echelonize */
 void spasm_echelonize_init_opts(struct echelonize_opts *opts);
-spasm* spasm_echelonize(spasm *A, int *Uqinv, struct echelonize_opts *opts);
+spasm* spasm_echelonize(const spasm *A, int *Uqinv, struct echelonize_opts *opts);
 
 /* spasm_rref.c */
 spasm * spasm_rref(const spasm *U, const int *Uqinv, int *Rqinv);
