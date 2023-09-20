@@ -7,11 +7,13 @@ import SparseArrays: nnz
 
 export spasm, kernel
 
-const spasm_lib = "$(@__DIR__)" * "/../deps/spasm/build/src/libspasm." * Libdl.dlext
+const spasm_lib = "$(@__DIR__)" * "/../deps/spasm/src/libspasm." * Libdl.dlext
+
+const prime₀ = 251 # the default prime to use
 
 struct GFp{prime} v::Cuint end
 Base.transpose(x::GFp) = x
-GFp(x::Integer,prime = 42013) = GFp{prime}(Cuint(mod(x,prime)))
+GFp(x::Integer,prime = prime₀) = GFp{prime}(Cuint(mod(x,prime)))
 GFp{prime}(x::Signed) where prime = GFp{prime}(Cuint(mod(x,prime)))
 GFp(x::GFp) = x
 #Base.convert(T::Type{GFp{prime}},x) where prime = T(x)
@@ -45,7 +47,7 @@ mutable struct spasm{prime}
     prime__::Int32
 end
 
-function spasm(A::SparseMatrixCSC{Tv,Ti},prime = 42013) where {Tv <: Integer,Ti} # actually create transposed matrix
+function spasm(A::SparseMatrixCSC{Tv,Ti},prime = prime₀) where {Tv <: Integer,Ti} # actually create transposed matrix
     nzmax = length(A.nzval)
     m,n = size(A)
     spasmA = csr_alloc(n,m,nzmax,prime,true)
@@ -143,6 +145,7 @@ csr_free1(A::spasm) = (@ccall free(A.p::Ptr{Cvoid})::Cvoid; @ccall free(A.j::Ptr
 # identity(n,prime) = sparsm(@ccall spasm_lib."spasm_identity"(n::Int32,prime::Int32)::Ptr{spasm})
 
 get_num_threads() = Int(@ccall spasm_lib."spasm_get_num_threads"()::Int32)
+set_num_threads(n::Int) = @ccall spasm_lib."spasm_set_num_threads"(n::Cint)::Cvoid
 get_thread_num() = Int(@ccall spasm_lib."spasm_get_thread_num"()::Int32)
 
 # from spasm_transpose.c
@@ -280,21 +283,24 @@ kernel_from_rref(R::spasm{prime},column_permutation = nothing) where prime = spa
 
 # helpers
 
-function load(f::File{format"SMS"})
-    open(f) do s; load(s) end
+function load(f::File{format"SMS"}; kwargs...)
+    open(f) do s; load(s; kwargs...) end
 end
 
-function load(s::Stream{format"SMS"})
-    read_sms(readuntil(s.io,'\0'))
+function load(s::Stream{format"SMS"}; kwargs...)
+    read_sms(readuntil(s.io,'\0'); kwargs...)
 end
     
-function save(f::File{format"SMS"}, A::SparseMatrixCSC)
-    open(f, "w") do s; save(s, A) end
+function save(f::File{format"SMS"}, A::SparseMatrixCSC; kwargs...)
+    open(f, "w") do s; save(s, A; kwargs...) end
 end
 
-function save(s::Stream{format"SMS"}, A::SparseMatrixCSC)
+function save(s::Stream{format"SMS"}, A::SparseMatrixCSC; transpose=false)
     write(s,string(size(A,1))," ",string(size(A,2))," M\n")
     for (i,j,v) = zip(findnz(A)...)
+        if transpose
+            i,j = j,i
+        end
         write(s,string(i)," ",string(j)," ",string(v),"\n")
     end
     write(s,"0 0 0\n")
@@ -319,7 +325,7 @@ function read_Int(str,pos) # much faster than parse
     end
 end
 
-function read_sms(str::AbstractString)
+function read_sms(str::AbstractString; transpose=false)
     pos = 1
     (m,pos) = read_Int(str,pos)
     (n,pos) = read_Int(str,pos)
@@ -331,20 +337,19 @@ function read_sms(str::AbstractString)
         (i,pos) = read_Int(str,pos)
         (j,pos) = read_Int(str,pos)
         (v,pos) = read_Int(str,pos)
-        i == 0 && return sparse(Is,Js,Vs,m,n)
+        if i == 0
+            return transpose ? sparse(Js,Is,Vs,n,m) : sparse(Is,Js,Vs,m,n)
+        end
         push!(Is,i)
         push!(Js,j)
         push!(Vs,v)
     end
 end
 
-const spasm_kernel_app = "$(@__DIR__)" * "/../deps/spasm/build/tools/kernel"
+const spasm_kernel_app = "$(@__DIR__)" * "/../deps/spasm/tools/kernel"
 
-function sparse_kernel_external(A,prime = 42013,dense_block_size = 166000,num_threads = Threads.nthreads())
-    input_mat = mat_to_buffer(A)
-    output_mat = IOBuffer()
-    run(pipeline(addenv(`$spasm_kernel_app --modulus $prime --dense-block-size $block_size`,"OMP_NUM_THREADS"=>num_threads),stdin=seekstart(input_mat),stdout=output_mat))
-    string_to_mat(seekstart(output_mat) |> readavailable |> String)
+function kernel_sms(A, K, qinv = "/dev/null"; modulus = prime₀, dense_block_size = 280_000, left = false, enable_greedy_pivot_search = true, enable_tall_and_skinny = true, low_rank_start_weight = nothing)
+    run(pipeline(`$spasm_kernel_app --modulus $modulus --dense-block-size $dense_block_size $(enable_greedy_pivot_search ? "" : "--no-greedy-pivot-search") $(enable_tall_and_skinny ? "" : "--no-low-rank-mode") $(low_rank_start_weight == nothing ? "" : "--low-rank-start-weight $low_rank_start_weight") --qinv-file $qinv`,stdin=A,stdout=K))
 end
 
 # one-stop shop for kernel computation
