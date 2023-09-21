@@ -9,5 +9,6 @@ cd("..") do
 end
 
 cd("spasm") do
+    run(`cmake .`)
     run(`make`)
 end

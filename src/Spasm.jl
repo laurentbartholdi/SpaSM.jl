@@ -296,14 +296,17 @@ function save(f::File{format"SMS"}, A::SparseMatrixCSC; kwargs...)
 end
 
 function save(s::Stream{format"SMS"}, A::SparseMatrixCSC; transpose=false)
-    write(s,string(size(A,1))," ",string(size(A,2))," M\n")
+    pb = PipeBuffer()
+    write(pb,string(size(A,1))," ",string(size(A,2))," M\n")
     for (i,j,v) = zip(findnz(A)...)
         if transpose
             i,j = j,i
         end
-        write(s,string(i)," ",string(j)," ",string(v),"\n")
+        write(pb,string(i)," ",string(j)," ",string(v),"\n")
+        bytesavailable(pb) > 65536 && write(s,take!(pb))
     end
-    write(s,"0 0 0\n")
+    write(pb,"0 0 0\n")
+    write(s,take!(pb))
 end
 
 function read_Int(str,pos) # much faster than parse
