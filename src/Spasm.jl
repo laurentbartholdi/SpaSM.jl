@@ -1,6 +1,6 @@
 module Spasm
 
-using SparseArrays, Libdl, FileIO
+using SparseArrays, Libdl, FileIO, Mmap
 
 import Base: unsafe_convert
 import SparseArrays: nnz
@@ -288,7 +288,7 @@ function load(f::File{format"SMS"}; kwargs...)
 end
 
 function load(s::Stream{format"SMS"}; kwargs...)
-    read_sms(readuntil(s.io,'\0'); kwargs...)
+    load_sms(String(mmap(s.io)); kwargs...)
 end
     
 function save(f::File{format"SMS"}, A::SparseMatrixCSC; kwargs...)
@@ -328,14 +328,14 @@ function read_Int(str,pos) # much faster than parse
     end
 end
 
-function read_sms(str::AbstractString; transpose=false)
+function load_sms(str::AbstractString; transpose=false, T=Int32)
     pos = 1
     (m,pos) = read_Int(str,pos)
     (n,pos) = read_Int(str,pos)
     # silently skip over the "M"
     Is = Int[]
     Js = Int[]
-    Vs = Int[]
+    Vs = T[]
     while true
         (i,pos) = read_Int(str,pos)
         (j,pos) = read_Int(str,pos)
