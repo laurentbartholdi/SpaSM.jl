@@ -1,0 +1,26 @@
+image: debian:12
+
+before_script:
+  - apt update
+  - apt -y install build-essential pkg-config gcc g++ clang make cmake
+  - apt -y install libgmp-dev libopenblas-dev fflas-ffpack
+
+stages:
+  - build
+  - unittest
+  - longtest
+
+compile_gcc:
+  stage: build
+  script:
+    - make
+
+unit_tests:
+    stage: unittest
+    script:
+      - make check
+
+long_tests:
+    stage: longtest
+    script:
+      - make longtests

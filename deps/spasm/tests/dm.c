@@ -1,0 +1,88 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <assert.h>
+
+#include "spasm.h"
+
+int main(int argc, char **argv)
+{
+	struct spasm_triplet *T = spasm_triplet_load(stdin, 42013, NULL);
+	struct spasm_csr *A = spasm_compress(T);
+	spasm_triplet_free(T);
+
+	int n = A->n;
+	int m = A->m;
+
+	/* generate random row & col permutation */
+	int *p = spasm_random_permutation(n);
+	int *q = spasm_random_permutation(m);
+	struct spasm_csr *B = spasm_permute(A, p, q, SPASM_IGNORE_VALUES);
+	free(p);
+	free(q);
+	spasm_csr_free(A);
+
+	/* compute DM decomposition of permuted M. */
+	struct spasm_dm * DM = spasm_dulmage_mendelsohn(B);
+	int *rr = DM->rr;
+	int *cc = DM->cc;
+	p = DM->p;
+	q = DM->q;
+
+	/* check that p and q are actually permutations */
+	int *x = spasm_malloc(n * sizeof(int));
+	int *y = spasm_malloc(m * sizeof(int));
+	for (int i = 0; i < n; i++)
+		x[i] = 0;
+	for (int i = 0; i < n; i++)
+		x[p[i]]++;
+	for (int i = 0; i < n; i++)
+		if (x[i] != 1) {
+			printf("not ok - DM(A) - p is not bijective\n");
+			exit(1);
+		}
+
+	for (int i = 0; i < m; i++)
+		y[i] = 0;
+	for (int i = 0; i < m; i++)
+		y[q[i]]++;
+	for (int i = 0; i < m; i++)
+		if (y[i] != 1) {
+			printf("not ok - DM(A) - q is not bijective\n");
+			exit(1);
+		}
+	free(x);
+	free(y);
+
+	/* check that coarse decomposition is really block-upper-triangular */
+	int *qinv = spasm_pinv(q, m);
+	struct spasm_csr *C = spasm_permute(B, p, qinv, SPASM_IGNORE_VALUES);
+	free(qinv);
+	spasm_csr_free(B);
+
+	i64 *Cp = C->p;
+	int *Cj = C->j;
+	
+	for (int i = rr[1]; i < rr[2]; i++)
+		for (i64 px = Cp[i]; px < Cp[i + 1]; px++) {
+			int j = Cj[px];
+			if (j < cc[2]) {
+				printf("not ok - DM(A) - row %d (in R_2) has entries in C_0 or C_1\n", i);
+				exit(1);
+			}
+		}
+
+	for (int i = rr[2]; i < rr[4]; i++)
+		for (i64 px = Cp[i]; px < Cp[i + 1]; px++) {
+			int j = Cj[px];
+			if (j < cc[3]) {
+				printf("not ok - DM(A) - row %d (in R_3 or R_0) has entries in C_0, C_1 or C_2\n", i);
+				exit(1);
+			}
+		}
+
+	printf("ok - Dulmage-Mendelsohn decomposition\n");
+
+	spasm_csr_free(C);
+	spasm_dm_free(DM);
+	return 0;
+}
