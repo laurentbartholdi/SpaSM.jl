@@ -303,10 +303,11 @@ function save(s::Stream{format"SMS"}, A::SparseMatrixCSC; transpose=false)
             i,j = j,i
         end
         write(pb,string(i)," ",string(j)," ",string(v),"\n")
-        bytesavailable(pb) > 65536 && write(s,take!(pb))
+        bytesavailable(pb) > 2^20 && write(s,take!(pb))
     end
     write(pb,"0 0 0\n")
     write(s,take!(pb))
+    nothing
 end
 
 function read_Int(str,pos) # much faster than parse
@@ -351,8 +352,8 @@ end
 
 const spasm_kernel_app = "$(@__DIR__)" * "/../deps/spasm/tools/kernel"
 
-function kernel_sms(A, K, qinv = "/dev/null"; modulus = prime₀, dense_block_size = 280_000, left = false, enable_greedy_pivot_search = true, enable_tall_and_skinny = true, low_rank_start_weight = nothing)
-    run(pipeline(`$spasm_kernel_app --modulus $modulus --dense-block-size $dense_block_size $(enable_greedy_pivot_search ? "" : "--no-greedy-pivot-search") $(enable_tall_and_skinny ? "" : "--no-low-rank-mode") $(low_rank_start_weight == nothing ? "" : "--low-rank-start-weight $low_rank_start_weight") --qinv-file $qinv`,stdin=A,stdout=K))
+function kernel_sms(A, K, qinv = "/dev/null"; modulus = prime₀, dense_block_size = nothing, left = false, enable_greedy_pivot_search = true, enable_tall_and_skinny = true, low_rank_start_weight = nothing)
+    run(pipeline(`$spasm_kernel_app --modulus $modulus $(dense_block_size == nothing ? "" : "--dense-block-size $dense_block_size") $(enable_greedy_pivot_search ? "" : "--no-greedy-pivot-search") $(enable_tall_and_skinny ? "" : "--no-low-rank-mode") $(low_rank_start_weight == nothing ? "" : "--low-rank-start-weight $low_rank_start_weight") --qinv-file $qinv`,stdin=A,stdout=K))
 end
 
 # one-stop shop for kernel computation
