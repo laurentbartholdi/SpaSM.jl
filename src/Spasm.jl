@@ -302,7 +302,7 @@ function save(s::Stream{format"SMS"}, A::SparseMatrixCSC; transpose=false)
         if transpose
             i,j = j,i
         end
-        write(pb,string(i)," ",string(j)," ",string(v),"\n")
+        write(pb,string(i)," ",string(j)," ",string(Int(v)),"\n")
         bytesavailable(pb) > 2^20 && write(s,take!(pb))
     end
     write(pb,"0 0 0\n")
@@ -351,9 +351,25 @@ function load_sms(str::AbstractString; transpose=false, T=Int32)
 end
 
 const spasm_kernel_app = "$(@__DIR__)" * "/../deps/spasm/tools/kernel"
+const spasm_rank_app = "$(@__DIR__)" * "/../deps/spasm/tools/rank"
 
-function kernel_sms(A, K, qinv = "/dev/null"; modulus = prime₀, dense_block_size = nothing, left = false, enable_greedy_pivot_search = true, enable_tall_and_skinny = true, low_rank_start_weight = nothing)
-    run(pipeline(`$spasm_kernel_app --modulus $modulus $(dense_block_size == nothing ? "" : "--dense-block-size $dense_block_size") $(enable_greedy_pivot_search ? "" : "--no-greedy-pivot-search") $(enable_tall_and_skinny ? "" : "--no-low-rank-mode") $(low_rank_start_weight == nothing ? "" : "--low-rank-start-weight $low_rank_start_weight") --qinv-file $qinv`,stdin=A,stdout=K))
+function kernel_sms(A, K, qinv = "/dev/null"; modulus = prime₀, dense_block_size = nothing, left = false, enable_greedy_pivot_search = true, enable_tall_and_skinny = true, low_rank_start_weight = nothing, num_threads = 1)
+    errmsg = IOBuffer()
+    try
+	run(pipeline(addenv(`$spasm_kernel_app --modulus $modulus $(dense_block_size == nothing ? "" : "--dense-block-size $dense_block_size") $(enable_greedy_pivot_search ? "" : "--no-greedy-pivot-search") $(enable_tall_and_skinny ? "" : "--no-low-rank-mode") $(low_rank_start_weight == nothing ? "" : "--low-rank-start-weight $low_rank_start_weight") --qinv-file $qinv`,"OMP_NUM_THREADS"=>string(num_threads)),stdin=A,stdout=K,stderr=errmsg))
+    catch
+	@error String(readavailable(seekstart(errmsg)))
+    end
+end
+
+function rank_sms(A; modulus = prime₀, dense_block_size = nothing, left = false, enable_greedy_pivot_search = true, enable_tall_and_skinny = true, low_rank_start_weight = nothing, num_threads = 1)
+    errmsg = IOBuffer()
+    try
+	run(pipeline(addenv(`$spasm_rank_app --modulus $modulus $(dense_block_size == nothing ? "" : "--dense-block-size $dense_block_size") $(enable_greedy_pivot_search ? "" : "--no-greedy-pivot-search") $(enable_tall_and_skinny ? "" : "--no-low-rank-mode") $(low_rank_start_weight == nothing ? "" : "--low-rank-start-weight $low_rank_start_weight")`,"OMP_NUM_THREADS"=>string(num_threads)),stdin=A,stderr=errmsg))
+    catch
+	@error String(readavailable(seekstart(errmsg)))
+    end
+    parse(Int,match(r"rank = ([0-9]*)",readlines(seekstart(errmsg))[end])[1])
 end
 
 # one-stop shop for kernel computation
