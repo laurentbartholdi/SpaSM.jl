@@ -5,12 +5,15 @@ if Sys.isapple()
     ENV["OMP_NUM_THREADS"] = "1"
 end
 
-using SparseArrays, LinearAlgebra, StructArrays, Libdl, FileIO, Mmap, Images, Suppressor
+using SparseArrays, LinearAlgebra, StructArrays, Libdl, FileIO, Mmap, Images, Random, DataStructures
 
 import SparseArrays: nnz
 import LinearAlgebra: rank
 
-export kernel, CSR, echelonize, rank
+export kernel, CSR, echelonize, Block, solve, sparse_triangular_solve
+    rank, # from LinearAlgebra
+    sprand, # from SparseArrays
+    load, save # from FileIO
 
 const spasm_lib = "$(@__DIR__)" * "/../deps/spasm/src/libspasm." * Libdl.dlext
 
@@ -33,7 +36,14 @@ subscript_string(i) = prod(SUBSCRIPT_DICT[c] for c∈string(i))
 Base.show(io::IO, f::Field) = print(io,"𝔽",subscript_string(f.p))
 
 # cannot do that, because pointer_from_objref requires a mutable type.
-#Field(p) = (f = field(0,0,0,0.0); @ccall spasm_lib.spasm_field_init(p::Int, pointer_from_objref(f)::Ptr{field})::Cvoid; f)
+#Field(p) = (f = Field(0,0,0,0.0); @ccall spasm_lib.spasm_field_init(p::Int, pointer_from_objref(f)::Ptr{Field})::Cvoid; f)
+
+"""
+    Field(p::Int)
+
+Construct in Spasm the finite field 𝔽ₚ = ℤ/pℤ.
+To construct its elements see `ZZp`.
+"""
 function Field(p)
     @assert 2 < p ≤ 0xfffffffb
     Field(p, p ÷ 2, p ÷ 2 - p + 1, 1. / p)
@@ -48,6 +58,12 @@ function _normalize(F::Field, x)
     ZZp{F}(Int32(x))
 end
 
+"""
+    ZZp(F::Field, x::T) where {T <: Integer}
+    ZZp(p::Int = $prime₀, x::T)
+
+Construct in Spasm an element of the finite field 𝔽ₚ
+"""
 ZZp(F::Field, x::T) where {T <: Integer} = _normalize(F,mod(x,F.p))
 ZZp(prime::Int, x::T) where {T <: Integer} = _normalize(Field(prime),mod(x,prime))
 ZZp(x) = ZZp(Field(prime₀), x)
@@ -70,6 +86,8 @@ Base.:(==)(x::ZZp{F}, y::ZZp{F}) where F = x.v == y.v
 
 Base.hash(x::ZZp{F}, h::UInt) where F = hash(x.v, hash(F.p, h))
 
+Random.rand(rng::AbstractRNG, ::Random.SamplerType{ZZp{F}}) where {F} = ZZp{F}(rand(rng,F.mhalfp:F.halfp))
+
 ################################################################
 # spasm types
 
@@ -82,7 +100,16 @@ struct _CSR{F} # we need F as parameter to completely type x
     x::Ptr{ZZp{F}} # nonzeros
     field::Field
 end
-mutable struct CSR{F}
+
+"""
+    CSR{F} <: AbstractSparseMatrixCSC{F,Int32}
+
+Matrix type for Spasm's matrices in Compressed Sparse Row format.
+The standard way of constructing CSR is via the Triplet format, or from
+SparseArray's `SparseMatrixCSC` sparse matrices.
+See also `zeros` and `sprand`.
+"""
+mutable struct CSR{F} <: AbstractSparseMatrix{F,Int32}
     data::Ptr{_CSR{F}}
     function CSR(data::Ptr{_CSR{F}}; own=true) where F
         x = new{F}(data)
@@ -92,22 +119,18 @@ mutable struct CSR{F}
 end
 _get(x::CSR) = unsafe_load(x.data,1)
 
-function Base.getindex(N::CSR{F},s::Symbol) where F
+function Base.getproperty(N::CSR{F},s::Symbol) where F
+    s===:data && return getfield(N,s)
+
     M = _get(N)
-    if s==:m
-        return M.m
-    elseif s==:n
-        return M.n
-    elseif s==:nzmax
-        return M.nzmax
-    elseif s ==:p
-        return unsafe_wrap(Vector{Int64},M.p,M.m+1)
-    elseif s==:j
+    if s===:p
+        return unsafe_wrap(Vector{Int64},M.p,M.n+1)
+    elseif s===:j
         return unsafe_wrap(Vector{Int32},M.j,M.nzmax)
-    elseif s==:x
+    elseif s===:x
         return unsafe_wrap(Vector{ZZp{F}},M.x,M.nzmax)
     else
-        error("Unknown entry $s")
+        return getfield(M,s)
     end
 end
 
@@ -199,33 +222,46 @@ _get(x::LU) = unsafe_load(x.data,1)
 
 Base.show(io::IO, N::LU{F}) where F = (M = _get(N); print(io,"LU: rank $(M.r), complete $(M.complete), L=$(M.L), U=$(M.U), qinv=$(M.qinv), p=$(M.p), Ltpm=$(M.Ltpm)"))
 
-function Base.getindex(N::LU,s::Symbol)
+function Base.getproperty(N::LU,s::Symbol)
+    s===:data && return getfield(N,s)
+    
     M = _get(N)
-    if s==:rank
-        return M.r
-    elseif s==:complete
-        return M.complete
-    elseif s==:L
+    if s===:L
         M.L==C_NULL && error("M.L is null")
         return CSR(M.L,own=false)
-    elseif s ==:U
+    elseif s===:U
         M.U==C_NULL && error("M.U is null")
         return CSR(M.U,own=false)
-    elseif s==:qinv
+    elseif s===:qinv
         M.qinv==C_NULL && error("M.qinv is null")
         M.U==C_NULL && error("M.U is null")
         return unsafe_wrap(Vector{Int32},M.qinv,unsafe_load(M.U,1).m)
-    elseif s==:p
+    elseif s===:p
         M.p==C_NULL && error("M.p is null")
         M.U==C_NULL && error("M.U is null")
         return unsafe_wrap(Vector{Int32},M.p,unsafe_load(M.U,1).m)
     else
-        error("Unknown entry $s")
+        return getfield(M,s)
     end
 end
-rank(N::LU) = N[:rank]
-     
-mutable struct DM # Dulmage-Mendelson, not yet exposed
+rank(N::LU) = N.r
+
+struct _DM
+    p::Ptr{Int32} # size n, row permutation
+    q::Ptr{Int32} # size m, column permutation
+    r::Ptr{Int32} # size nb+1, block k is rows r[k] to r[k+1]-1 in A(p,q)
+    c::Ptr{Int32} #  size nb+1, block k is cols s[k] to s[k+1]-1 in A(p,q)
+    nb::Int32     # # of blocks in fine decomposition */
+    rr::NTuple{5,Int32} # coarse row decomposition
+    cc::NTuple{5,Int32} # coarse column decomposition
+end
+
+mutable struct DM # Dulmage-Mendelsohn
+    data::_DM
+    function DM(data::Ptr{_DM}; own=true)
+        x = new(data)
+        own && finalizer(dm_free,x)
+    end
 end
 
 mutable struct EchelonizeOpts
@@ -314,7 +350,7 @@ Base.:(*)(x::T, y::ZZp{F}) where {F, T <: Integer} = _normalize(F, x*Int(y.v))
 ################################################################
 # sha256.c
 
-# we don't expose these, they're already in SHA
+# we don't expose these, they're already in the SHA package
 """
 void spasm_SHA256_init(spasm_sha256_ctx *c);
 void spasm_SHA256_update(spasm_sha256_ctx *c, const void *data, size_t len);
@@ -346,6 +382,9 @@ void *spasm_realloc(void *ptr, i64 size);
 
 csr_alloc(m,n,nzmax,prime = prime₀,with_values = true) = CSR(convert(Ptr{_CSR{Field(prime)}},@ccall spasm_lib.spasm_csr_alloc(m::Int32,n::Int32,nzmax::Int64,prime::Int64,with_values::Bool)::Ptr{Cvoid}))
 
+Base.zeros(F::Field,m,n) = csr_alloc(m,n,0,F.p)
+SparseArrays.sprand(F::Field,m,n,density = 1.0) = CSR(sprand(ZZp{F},n,m,density))
+
 csr_realloc(A::CSR{F},nzmax) where F = @ccall spasm_lib.spasm_csr_realloc(A.data::Ptr{_CSR{F}},nzmax::Int64)::Cvoid
 
 csr_resize(A::CSR{F},m,n) where F = @ccall spasm_lib.spasm_csr_resize(A.data::Ptr{_CSR{F}},m::Int32,n::Int32)::Cvoid
@@ -358,9 +397,9 @@ triplet_realloc(A::Triplet{F},nzmax) where F = @ccall spasm_lib.spasm_triplet_re
 
 triplet_free(A::Triplet{F}) where F = @ccall spasm_lib.spasm_triplet_free(A.data::Ptr{_Triplet{F}})::Cvoid
 
-# dm_alloc(n,m) = #@ struct spasm_dm *spasm_dm_alloc(int n, int m);
+dm_alloc(n,m) = DM(@ccall spasm_lib.spasm_dm_alloc(n::Int32, m::Int32)::Ptr{_DM})
 
-#@ void spasm_dm_free(struct spasm_dm * P);
+dm_free(P::DM) = @ccall spasm_lib.spasm_dm_free(P.data::Ptr{_DM})::Cvoid
 
 lu_free(N::LU{F}) where F = @ccall spasm_lib.spasm_lu_free(N.data::Ptr{_LU{F}})::Cvoid
 
@@ -517,12 +556,14 @@ void spasm_range_pvec(int *x, int a, int b, int *p);
 
 ################################################################
 # spasm_scatter.c
-"""
-void spasm_scatter(const struct spasm_csr *A, int i, spasm_ZZp beta, spasm_ZZp * x);
-"""
+
+"""x += β*A[i]"""
+scatter(A::CSR{F},i,β::ZZp{F},x::Vector{ZZp{F}}) where F = @ccall spasm_lib.spasm_scatter(A.data::Ptr{_CSR{F}},i::Int32,β::ZZp{F},pointer(x)::Ptr{ZZp{F}})::Cvoid
 
 ################################################################
 # spasm_reach.c
+
+# we don't expose these unless needed -- they're used internally
 """
 int spasm_dfs(int i, const struct spasm_csr * G, int top, int *xi, int *pstack, int *marks, const int *pinv);
 int spasm_reach(const struct spasm_csr * A, const struct spasm_csr * B, int k, int l, int *xj, const int *qinv);
@@ -532,8 +573,10 @@ int spasm_reach(const struct spasm_csr * A, const struct spasm_csr * B, int k, i
 # spasm_spmv.c
 
 """
-(dense) vector * (sparse) Matrix
-y <--- x*A + y
+    xApy(x::Vector{ZZp{F}}, A::CSR{F}, y::Vector{ZZp{F}})
+
+Implements (dense vector) * (sparse CSR matrix)
+y ← x⋅A + y
 """
 function xApy(x::Vector{ZZp{F}}, A::CSR{F}, y::Vector{ZZp{F}}) where F
     @assert length(x)==size(A,1)
@@ -542,8 +585,10 @@ function xApy(x::Vector{ZZp{F}}, A::CSR{F}, y::Vector{ZZp{F}}) where F
 end
 
 """
-(dense) vector * (sparse) Matrix
-y <--- Ax + y
+    Axpy(A::CSR{F}, x::Vector{ZZp{F}}, y::Vector{ZZp{F}})
+
+Implements (sparse CSR matrix) * (dense vector)
+y ← A⋅x + y
 """
 function Axpy(A::CSR{F}, x::Vector{ZZp{F}}, y::Vector{ZZp{F}}) where F
     @assert length(x)==size(A,2)
@@ -553,7 +598,11 @@ end
 
 ################################################################
 # spasm_triangular.c
-"""Solve x.L = b with dense b and x.
+
+"""
+    dense_back_solve(L::CSR{F}, b::Vector{ZZp{F}}, x::Vector{ZZp{F}}, p::Vector{Int32})
+
+Solve x⋅L = b with dense b and x.
 x must have size n (#rows of L) and b must have size m (#cols of L)
 b is destroyed
 L is assumed to be (permuted) lower-triangular, with non-zero diagonal.
@@ -566,11 +615,14 @@ function dense_back_solve(L::CSR{F}, b::Vector{ZZp{F}}, x::Vector{ZZp{F}}, p::Ve
     @ccall spasm_lib.spasm_dense_back_solve(L.data::Ptr{_CSR{F}}, pointer(b)::Ptr{Int32}, pointer(x)::Ptr{Int32}, Ptr{p}::Ptr{Int32})::Bool
 end
 
-"""Solve x.U = b with dense x, b.
+"""
+    dense_forward_solve(U::CSR{F}, b::Vector{ZZp{F}}, x::Vector{ZZp{F}}, q::Vector{Int32})
+
+Solve x⋅U = b with dense x, b.
 b is destroyed on output
 
 U is (permuted) upper-triangular with unit diagonal.
-q[i] == j    means that the pivot on row i is on column j (this is the inverse of the usual qinv).
+q[i] == j means that the pivot on row i is on column j (this is the inverse of the usual qinv).
 """
 function dense_forward_solve(U::CSR{F}, b::Vector{ZZp{F}}, x::Vector{ZZp{F}}, q::Vector{Int32}) where F
     @assert length(x)==size(U,1)==length(q)
@@ -578,22 +630,25 @@ function dense_forward_solve(U::CSR{F}, b::Vector{ZZp{F}}, x::Vector{ZZp{F}}, q:
     @ccall spasm_lib.spasm_dense_forward_solve(U.data::Ptr{_CSR{F}}, pointer(b)::Ptr{Int32}, pointer(x)::Ptr{Int32}, Ptr{q}::Ptr{Int32})::Bool
 end
 
-"""Solve x * U = B[k], where U is (permuted) triangular (either upper or lower).
+"""
+    sparse_triangular_solve(U::CSR{F}, B::CSR{F}, k::Int, xj::Vector{Int32}, x::Vector{ZZp{F}}, qinv::Vector{Int32})
 
- x must have size m (#columns of U); it does not need to be initialized.
- xj must be preallocated of size 3*m and zero-initialized (it remains OK)
- qinv locates the pivots in U.
+Solve x * U = B[k], where U is (permuted) triangular (either upper or lower).
 
- On output, the solution is scattered in x, and its pattern is given in xj[top:m].
- The precise semantics is as follows. Define:
+x must have size m (#columns of U); it does not need to be initialized.
+xj must be preallocated of size 3*m and zero-initialized (it remains OK)
+qinv locates the pivots in U.
+
+On output, the solution is scattered in x, and its pattern is given in xj[top:m].
+The precise semantics is as follows. Define:
          x_a = { j in [0:m] : qinv[j] < 0 }
          x_b = { j in [0:m] : qinv[j] >= 0 }
- Then x_b * U + x_a == B[k].  It follows that x * U == y has a solution iff x_a is empty.
+Then x_b * U + x_a == B[k].  It follows that x * U == y has a solution iff x_a is empty.
 
- top is the return value
+top is the return value
 
- This does not require the pivots to be the first entry of the row.
- This requires that the pivots in U are all equal to 1.
+This does not require the pivots to be the first entry of the row.
+This requires that the pivots in U are all equal to 1.
 """
 function sparse_triangular_solve(U::CSR{F}, B::CSR{F}, k::Int, xj::Vector{Int32}, x::Vector{ZZp{F}}, qinv::Vector{Int32}) where F
     m = size(U,2)
@@ -605,14 +660,23 @@ function sparse_triangular_solve(U::CSR{F}, B::CSR{F}, k::Int, xj::Vector{Int32}
     @ccall spasm_lib.spasm_sparse_triangular_solve(U.data::Ptr{_CSR{F}}, B.data::Ptr{_CSR{F}}, k::Int32, pointer(xj)::Ptr{Int32}, pointer(x)::Ptr{Int32}, pointer(qinv)::Ptr{Int32})::Int32
 end
 
-"""Solve X*U = B"""
+"""
+    sparse_triangular_solve(LU::LU{F}, B::CSR{F})
+    sparse_triangular_solve(U::CSR{F}, B::CSR{F}, qinv::Vector{Int32})
+
+Solve `X`*`LU.U` == `B`, respectively `X`*`U` = `B` in sparse matrices.
+The pivot positions of `U` are indicated in `qinv`.
+
+Returns the solution `X` as a sparse matrix, or `nothing` if there is no solution.
+"""
 function sparse_triangular_solve(U::CSR{F}, B::CSR{F}, qinv::Vector{Int32}) where F
     m = size(U,2)
     @assert m==size(B,2)==length(qinv)
-    Xt = spzeros(ZZp{F},size(U,1),size(B,1))
+    Xt = spzeros(ZZp{F},size(U,1),size(B,1)) # transposed solution
+    xj = Vector{Int32}(undef,3m)
+    x = Vector{ZZp{F}}(undef,m)
     for k=1:size(B,1)
-        xj = zeros(Int32,3m)
-        x = zeros(ZZp{F},m)
+        fill!(xj,0)
         top = sparse_triangular_solve(U, B, k-1, xj, x, qinv)
         for i=top+1:m
             j = xj[i]+1
@@ -626,11 +690,11 @@ function sparse_triangular_solve(U::CSR{F}, B::CSR{F}, qinv::Vector{Int32}) wher
     CSR(Xt)
 end
 
-"""Solve X*A = B, where A has been echelonized"""
-sparse_triangular_solve(LU::LU{F}, B::CSR{F}) where F = sparse_triangular_solve(LU[:U], B, LU[:qinv])
+sparse_triangular_solve(LU::LU{F}, B::CSR{F}) where F = sparse_triangular_solve(LU.U, B, LU.qinv)
 
 ################################################################
 # spasm_schur.c
+
 """
 struct spasm_csr *spasm_schur(const struct spasm_csr *A, const int *p, int n, const struct spasm_lu *fact,
                    double est_density, struct spasm_triplet *L, const int *p_in, int *p_out);
@@ -645,6 +709,7 @@ inv,
 
 ################################################################
 # spasm_pivots.c
+
 """
 int spasm_pivots_extract_structural(const struct spasm_csr *A, const int *p_in, struct spasm_lu *fact, int *p, struct ech
 elonize_opts *opts);
@@ -652,6 +717,7 @@ elonize_opts *opts);
 
 ################################################################
 # spasm_matching.c
+
 """
 int spasm_maximum_matching(const struct spasm_csr *A, int *jmatch, int *imatch);
 int *spasm_permute_row_matching(int n, const int *jmatch, const int *p, const int *qinv);
@@ -662,18 +728,17 @@ int spasm_structural_rank(const struct spasm_csr *A);
 
 ################################################################
 # spasm_dm.c
-"""
-struct spasm_dm *spasm_dulmage_mendelsohn(const struct spasm_csr *A);
-"""
+
+dulmage_mendelsohn(A::CSR{F}) where F = DM(@ccall spasm_lib.spasm_dulmage_mendelsohn(A.data::Ptr{_CSR{F}})::Ptr{_DM})
 
 ################################################################
 # spasm_scc.c
-"""
-struct spasm_dm *spasm_strongly_connected_components(const struct spasm_csr *A);
-"""
+
+strongly_connected_components(A::CSR{F}) where F = DM(@ccall spasm_lib.spasm_strongly_connected_components(A.data::Ptr{_CSR{F}})::Ptr{_DM})
 
 ################################################################
 # spasm_ffpack.cpp
+
 """
 int spasm_ffpack_rref(i64 F, int n, int m, void *A, int ldA, spasm_datatype datatype, size_t *qinv);
 int spasm_ffpack_LU(i64 F, int n, int m, void *A, int ldA, spasm_datatype datatype, size_t *p, size_t *qinv);
@@ -696,16 +761,41 @@ function parse_echelonize_opts(opts = EchelonizeOpts(); kwargs...)
     opts
 end
 
-function echelonize(A::CSR{F}, opts = EchelonizeOpts(); verbose = false, kwargs...) where F
-    local ptr
-    if verbose
-        #@ how can we avoid duplicating the code here?
-        ptr = @ccall spasm_lib.spasm_echelonize(A.data::Ptr{_CSR{F}},pointer_from_objref(parse_echelonize_opts(opts; kwargs...))::Ptr{EchelonizeOpts})::Ptr{_LU{F}}
-    else
-        msg = @capture_err ptr = @ccall spasm_lib.spasm_echelonize(A.data::Ptr{_CSR{F}},pointer_from_objref(parse_echelonize_opts(opts; kwargs...))::Ptr{EchelonizeOpts})::Ptr{_LU{F}}
-        ptr==C_NULL && error(msg)
+"""Capture stderr while executing f, if the optional argument is true.
+
+Typicall syntax is
+julia> capture_stderr() do
+           @info "Hi!"
+            42
+       end
+
+(42, "┌ Info: Hi!\n└ @ Main REPL[1]:2\n")
+"""
+function capture_stderr(f::Function, activate::Bool = true)
+    if activate
+        original_stderr = stderr
+        err_rd, err_wr = redirect_stderr()
+        err_reader = @async read(err_rd, String)
     end
-    LU(ptr)
+    
+    result = f()
+
+    if activate
+        redirect_stderr(original_stderr)
+        close(err_wr)
+        message = fetch(err_reader)
+    else
+        message = ""
+    end
+    
+    result, message
+end
+
+function echelonize(A::CSR{F}, opts = EchelonizeOpts(); verbose = false, kwargs...) where F
+    lu, _ = capture_stderr(!verbose) do
+        LU(@ccall spasm_lib.spasm_echelonize(A.data::Ptr{_CSR{F}},pointer_from_objref(parse_echelonize_opts(opts; kwargs...))::Ptr{EchelonizeOpts})::Ptr{_LU{F}})
+    end
+    lu
 end
 
 ################################################################
@@ -717,14 +807,10 @@ rref(fact::LU{F}, Rqinv) where F = CSR(@ccall spasm_lib.spasm_rref(fact.data::Pt
 # spasm_kernel.c
 
 function kernel(fact::LU{F}; verbose = false) where F
-    local ptr
-    if verbose
-        ptr = @ccall spasm_lib.spasm_kernel(fact.data::Ptr{_LU{F}})::Ptr{_CSR{F}}
-    else
-        msg = @capture_err ptr = @ccall spasm_lib.spasm_kernel(fact.data::Ptr{_LU{F}})::Ptr{_CSR{F}}
-        ptr==C_NULL && error(msg)
+    k, _ = capture_stderr(!verbose) do
+        CSR(@ccall spasm_lib.spasm_kernel(fact.data::Ptr{_LU{F}})::Ptr{_CSR{F}})
     end
-    CSR(ptr)
+    k
 end
 
 kernel_from_rref(R::CSR{F}, qinv) where F = CSR(@ccall spasm_lib.spasm_kernel(fact.data::Ptr{_LU{F}}, qinv::Ptr{Int32})::Ptr{_CSR{F}})
@@ -732,26 +818,35 @@ kernel_from_rref(R::CSR{F}, qinv) where F = CSR(@ccall spasm_lib.spasm_kernel(fa
 ################################################################
 # spasm_solve.c
 
-"""Solve x*A=b.
-Returns solution x or `nothing` if no solution"""
+"""
+    solve(fact::LU{F}, b::Vector{ZZp{F}}, x::Union{Vector{ZZp{F}},Nothing} = nothing)
+
+Solve `x`*`A` == `b`, where `A` has already been echelonized as `fact`.
+Returns solution `x` or `nothing` if no solution
+"""
 function solve(fact::LU{F}, b::Vector{ZZp{F}}, x::Union{Vector{ZZp{F}},Nothing} = nothing) where F
-    fact[:L] # force it to be non-null
-    @assert length(b)==fact[:U][:m]
+    fact.L # force it to be non-null
+    @assert length(b)==fact.U.m
     if x==nothing
-        x = zeros(ZZp{F},fact[:U][:n])
+        x = zeros(ZZp{F},fact.U.n)
     else
-        @assert length(x)==fact[:U][:n]
+        @assert length(x)==fact.U.n
     end
     ok = @ccall spasm_lib.spasm_solve(fact.data::Ptr{_LU{F}}, pointer(b)::Ptr{Int32}, pointer(x)::Ptr{Int32})::Bool
     ok ? x : nothing
 end
 
-"""Solve XA == B (returns garbage if a solution does not exist).
-returns (X, Vector{Bool} indicating ok solutions)
+"""
+    gesv(fact::LU{F}, B::CSR{F})
+
+Solve `X`*`A` == `B` where `A` has already been echelonized in `fact`.
+
+Assumes that `fact` is a complete factorization, with `:U` and `:L` fields.
+Returns (X, Vector{Bool} indicating which rows of `X` are valid solutions).
 """
 function gesv(fact::LU{F}, B::CSR{F}) where F
-    fact[:L]
-    @assert size(B,2)==size(fact[:U],2)
+    fact.L
+    @assert size(B,2)==size(fact.U,2)
     ok = zeros(Bool,size(B,1))
     X = CSR(@ccall spasm_lib.spasm_gesv(fact.data::Ptr{_LU{F}}, B.data::Ptr{_CSR{F}}, pointer(ok)::Ptr{Bool})::Ptr{_CSR{F}})
     (X,ok)
@@ -759,14 +854,16 @@ end
 
 ################################################################
 # spasm_certificate.c
-"""
-struct spasm_rank_certificate * spasm_certificate_rank_create(const struct spasm_csr *A, const u8 *hash, const struct spasm_lu *fact);
-bool spasm_certificate_rank_verify(const struct spasm_csr *A, const u8 *hash, const struct spasm_rank_certificate *proof)
-;
-void spasm_rank_certificate_save(const struct spasm_rank_certificate *proof, FILE *f);
-bool spasm_rank_certificate_load(FILE *f, struct spasm_rank_certificate *proof);
-bool spasm_factorization_verify(const struct spasm_csr *A, const struct spasm_lu *fact, u64 seed);
-"""
+
+certificate_rank_create(A::CSR{F}, hash::Vector{UInt8}, fact::LU{F}) where F = @ccall spasm_lib.spasm_certificate_rank_create(A.data::Ptr{_CSR{F}},pointer(hash)::Ptr{UInt8},fact.data::Ptr{_LU{F}})::RankCertificate{F}
+
+certificate_rank_verify(A::CSR{F}, hash::Vector{UInt8}, proof::RankCertificate{F}) where F = @ccall spasm_lib.spasm_certificate_rank_verify(A.data::Ptr{_CSR{F}}, pointer(hash)::Ptr{UInt8}, proof::RankCertificate{F})::Bool
+
+rank_certificate_save(proof::RankCertificate{F},f::Libc.FILE) where F = @ccall spasm_lib.spasm_rank_certificate_save(proof::RankCertificate{F},f::Libc.FILE)::Cvoid
+
+rank_certificate_load(f::Libc.FILE,proof::RankCertificate{F}) where F = @ccall spasm_lib.spasm_rank_certificate_load(f::Libc.FILE,proof::RankCertificate{F})::Bool
+
+factorization_verify(A::CSR{F}, fact::LU{F}, seed::UInt64) where F = @ccall spasm_lib.spasm_factorization_verify(A.data::Ptr{_CSR{F}}, fact.data::Ptr{_LU{F}}, seed::UInt64)::Bool
 
 ################################################################
 # more constructors
@@ -821,6 +918,11 @@ function CSR(A::SparseMatrixCSC{ZZp{F},Ti}; transpose = true) where {F,Ti}
 end
 
 Base.:(*)(a::CSR{F}, b::CSR{F}) where F = CSR(sparse(b)*sparse(a))
+Base.:(+)(a::CSR{F}, b::CSR{F}) where F = CSR(sparse(a)+sparse(b))
+Base.:(-)(a::CSR{F}, b::CSR{F}) where F = CSR(sparse(a)-sparse(b))
+Base.:(-)(a::CSR{F}) where F = CSR(-sparse(a))
+Base.:(==)(a::CSR{F}, b::CSR{F}) where F = sparse(a) == sparse(b)
+Base.hash(a::CSR{F}, h...) where F = hash(sparse(a), h...)
 
 """Sort two arrays in parallel, using a as comparison"""
 parallelsort!(a,b) = sort!(StructArray((a,b)),lt=(x,y)->x[1]<y[1],alg=Base.Sort.QuickSort)
@@ -838,8 +940,6 @@ function SparseArrays.sparse(A::CSR{F}; transpose = true) where F
     mat = SparseMatrixCSC{ZZp{F},Int}(A.m,A.n,colptr,rowval,nzval)
     transpose ? mat : Base.transpose(mat)
 end
-
-#permutation(x) = (x == nothing ? C_NULL : isa(x,Vector{Int32}) ? pointer(x) : error("permutation $x should be nothing or a Vector{Int32}"))
 
 function fileio_save(f::File{format"SMS"}, A::SparseMatrixCSC; kwargs...)
     open(f, "w") do s; save(s, A; kwargs...) end
@@ -955,5 +1055,9 @@ function kernel_pivots(A::CSR{F}; kwargs...) where F
     k = kernel(e)
     (k, pivots(qinv(e),k))
 end
+
+################################################################
+# block matrices and LU decompositions
+include("blocks.jl")
 
 end
