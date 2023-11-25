@@ -104,25 +104,41 @@ function Block(A::CSR{F}) where F
     Block{CSR{F}}(blocks,row2block,col2block,block2row,block2col)
 end
 
-function echelonize(block::Block{CSR{F}}) where F
+function echelonize(block::Block{CSR{F}}; kwargs...) where F
     lu = Vector{LU{F}}(undef,length(block))
     
     Threads.@threads for b=1:length(block)
-        lu[b] = echelonize(block.blocks[b])
+        lu[b] = echelonize(block.blocks[b]; kwargs...)
     end
 
     Block{LU{F}}(lu,block.row2block,block.col2block,block.block2row,block.block2col)
 end
 
-function kernel(block::Block{LU{F}}) where F
+rank(block::Block; kwargs...) = sum(rank(X; kwargs...) for X=block.blocks,init=0)
+    
+function kernel(block::Block{LU{F}}; kwargs...) where F
     k = Vector{CSR{F}}(undef,length(block))
     
     Threads.@threads for b=1:length(block)
-        k[b] = kernel(block.blocks[b])
+        k[b] = kernel(block.blocks[b]; kwargs...)
     end
-
-    Block{CSR{F}}(k,block.row2block,block.col2block,block.block2row,block.block2col)
+    block2row = Vector{Int32}[]
+    row2block = Tuple{Int32,Int32}[]
+    rank = 0
+    for b=1:length(block)
+        subrank = size(k[b],1)
+        push!(block2row,rank:rank+subrank-1)
+        for i=1:subrank
+            push!(row2block,(b,i-1))
+        end
+        rank += subrank
+    end
+    Block{CSR{F}}(k,row2block,block.col2block,block2row,block.block2col)
 end
+
+kernel(block::Block{CSR{F}}; kwargs...) where F = kernel(echelonize(block; kwargs...))
+
+transpose(block::Block{CSR{F}}) where F = Block{LU{F}}([transpose(X) for X=block.blocks],block.col2block,block.row2block,block.block2col,block.block2row)
 
 function CSR(block::Block{CSR{F}}) where F
     nnz = 0

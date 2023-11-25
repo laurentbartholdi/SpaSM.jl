@@ -10,9 +10,9 @@ using SparseArrays, LinearAlgebra, StructArrays, Libdl, FileIO, Mmap, Images, Ra
 import SparseArrays: nnz
 import LinearAlgebra: rank
 
-export kernel, CSR, echelonize, Block, solve, sparse_triangular_solve
+export kernel, CSR, echelonize, Block, solve, sparse_triangular_solve,
     rank, # from LinearAlgebra
-    sprand, # from SparseArrays
+    sprand, nnz, # from SparseArrays
     load, save # from FileIO
 
 const spasm_lib = "$(@__DIR__)" * "/../deps/spasm/src/libspasm." * Libdl.dlext
@@ -102,14 +102,14 @@ struct _CSR{F} # we need F as parameter to completely type x
 end
 
 """
-    CSR{F} <: AbstractSparseMatrixCSC{F,Int32}
+    CSR{F} <: AbstractSparseMatrixCSC{ZZp{F},Int32}
 
 Matrix type for Spasm's matrices in Compressed Sparse Row format.
 The standard way of constructing CSR is via the Triplet format, or from
 SparseArray's `SparseMatrixCSC` sparse matrices.
 See also `zeros` and `sprand`.
 """
-mutable struct CSR{F} <: AbstractSparseMatrix{F,Int32}
+mutable struct CSR{F} <: AbstractSparseMatrix{ZZp{F},Int32}
     data::Ptr{_CSR{F}}
     function CSR(data::Ptr{_CSR{F}}; own=true) where F
         x = new{F}(data)
@@ -132,6 +132,16 @@ function Base.getproperty(N::CSR{F},s::Symbol) where F
     else
         return getfield(M,s)
     end
+end
+
+function Base.getindex(N::CSR{F},i,j) where F
+    colptr = N.j
+    for a=N.p[i]+1:N.p[i+1]
+        if colptr[a] == j
+            return N.x[a]
+        end
+    end
+    return ZZp{F}(0)
 end
 
 Base.show(io::IO, A::CSR{F}) where F = (M = _get(A); @assert F==M.field; print(io,M.n,"×",M.m," CSR matrix % ",F.p," with ",nnz(A)," (maximum ",M.nzmax,") non-zeros"))
@@ -382,7 +392,7 @@ void *spasm_realloc(void *ptr, i64 size);
 
 csr_alloc(m,n,nzmax,prime = prime₀,with_values = true) = CSR(convert(Ptr{_CSR{Field(prime)}},@ccall spasm_lib.spasm_csr_alloc(m::Int32,n::Int32,nzmax::Int64,prime::Int64,with_values::Bool)::Ptr{Cvoid}))
 
-Base.zeros(F::Field,m,n) = csr_alloc(m,n,0,F.p)
+SparseArrays.spzeros(F::Field,m,n) = csr_alloc(m,n,0,F.p)
 SparseArrays.sprand(F::Field,m,n,density = 1.0) = CSR(sprand(ZZp{F},n,m,density))
 
 csr_realloc(A::CSR{F},nzmax) where F = @ccall spasm_lib.spasm_csr_realloc(A.data::Ptr{_CSR{F}},nzmax::Int64)::Cvoid
