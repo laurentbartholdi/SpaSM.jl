@@ -1,6 +1,6 @@
 module Spasm
 
-if Sys.isapple()
+if false && Sys.isapple()
     @warn "Setting OMP_NUM_THREADS to 1"
     ENV["OMP_NUM_THREADS"] = "1"
 end
@@ -10,9 +10,9 @@ using SparseArrays, LinearAlgebra, StructArrays, Libdl, FileIO, Mmap, Images, Ra
 import SparseArrays: nnz
 import LinearAlgebra: rank
 
-export kernel, CSR, echelonize, Block, solve, sparse_triangular_solve,
-    rank, # from LinearAlgebra
-    sprand, nnz, # from SparseArrays
+export kernel, CSR, echelonize, Block, solve, sparse_triangular_solve, ZZp, Field,
+    rank, I, # from LinearAlgebra
+    sprand, nnz, spzeros, # from SparseArrays
     load, save # from FileIO
 
 const spasm_lib = "$(@__DIR__)" * "/../deps/spasm/src/libspasm." * Libdl.dlext
@@ -48,8 +48,11 @@ function Field(p)
     @assert 2 < p ≤ 0xfffffffb
     Field(p, p ÷ 2, p ÷ 2 - p + 1, 1. / p)
 end
+const F₀ = Field(prime₀)
 
-struct ZZp{F} v::Int32 end
+struct ZZp{F} <: Number
+    v::Int32
+end
 
 function _normalize(F::Field, x)
     if x < F.mhalfp x += F.p
@@ -66,10 +69,13 @@ Construct in Spasm an element of the finite field 𝔽ₚ
 """
 ZZp(F::Field, x::T) where {T <: Integer} = _normalize(F,mod(x,F.p))
 ZZp(prime::Int, x::T) where {T <: Integer} = _normalize(Field(prime),mod(x,prime))
-ZZp(x) = ZZp(Field(prime₀), x)
+ZZp(x) = ZZp(F₀, x)
 (F::Field)(x::T) where {T <: Integer} = _normalize(F,mod(x,F.p))
 Base.convert(::Type{ZZp{F}},x::T) where {F, T <: Integer} = ZZp(F,x)
-             
+ZZp{F}(x::Spasm.ZZp{F}) where F = x
+ZZp(x::ZZp{F₀}) = ZZp{F₀}(x)
+ZZp(x::ZZp{F}) where F = error("Trying to convert from Field($(F.p)) to Field($prime₀)")
+
 Base.Int8(x::ZZp) = Int8(x.v)
 Base.Int16(x::ZZp) = Int16(x.v)
 Base.Int32(x::ZZp) = Int32(x.v)
@@ -137,7 +143,7 @@ end
 function Base.getindex(N::CSR{F},i,j) where F
     colptr = N.j
     for a=N.p[i]+1:N.p[i+1]
-        if colptr[a] == j
+        if colptr[a] == j-1
             return N.x[a]
         end
     end
@@ -928,6 +934,17 @@ function CSR(A::SparseMatrixCSC{ZZp{F},Ti}; transpose = true) where {F,Ti}
     transpose ? realA : Base.transpose(realA)
 end
 
+CSR(a::UniformScaling{F},n) where F = CSR(sparse(a,n,n))
+CSR(a::UniformScaling{ZZp{F}},n) where F = CSR(sparse(a.λ*I,n,n))
+CSR(a::UniformScaling{T},n) where T <: Number = CSR(sparse(ZZp(a.λ)*I,n,n))
+
+#@ the following are inefficient, we could work directly on the matrices without going through SparseMatrixCSC
+Base.:(*)(a::UniformScaling{T}, b::CSR{F}) where {F,T <: Number} = CSR(ZZp{F}(a.λ)*sparse(b))
+Base.:(*)(a::CSR{F}, b::UniformScaling{T}) where {F,T <: Number} = CSR(sparse(a)*ZZp{F}(b.λ))
+Base.:(*)(a::ZZp{F}, b::CSR{F}) where F = CSR(a*sparse(b))
+Base.:(*)(a::T, b::CSR{F}) where {F,T <: Number} = CSR(ZZp{F}(a)*sparse(b))
+Base.:(*)(a::CSR{F}, b::ZZp{F}) where F = CSR(sparse(a)*b)
+Base.:(*)(a::CSR{F}, b::T) where {F, T <: Number} = CSR(sparse(a)*ZZp{F}(b))
 Base.:(*)(a::CSR{F}, b::CSR{F}) where F = CSR(sparse(b)*sparse(a))
 Base.:(+)(a::CSR{F}, b::CSR{F}) where F = CSR(sparse(a)+sparse(b))
 Base.:(-)(a::CSR{F}, b::CSR{F}) where F = CSR(sparse(a)-sparse(b))
@@ -935,7 +952,7 @@ Base.:(-)(a::CSR{F}) where F = CSR(-sparse(a))
 Base.:(==)(a::CSR{F}, b::CSR{F}) where F = sparse(a) == sparse(b)
 Base.hash(a::CSR{F}, h...) where F = hash(sparse(a), h...)
 
-"""Sort two arrays in parallel, using a as comparison"""
+"""Sort two arrays in parallel, using `a` for comparison"""
 parallelsort!(a,b) = sort!(StructArray((a,b)),lt=(x,y)->x[1]<y[1],alg=Base.Sort.QuickSort)
 
 function SparseArrays.sparse(A::CSR{F}; transpose = true) where F
