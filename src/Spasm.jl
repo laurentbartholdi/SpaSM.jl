@@ -392,7 +392,8 @@ void *spasm_realloc(void *ptr, i64 size);
 
 csr_alloc(m,n,nzmax,prime = prime₀,with_values = true) = CSR(convert(Ptr{_CSR{Field(prime)}},@ccall spasm_lib.spasm_csr_alloc(m::Int32,n::Int32,nzmax::Int64,prime::Int64,with_values::Bool)::Ptr{Cvoid}))
 
-SparseArrays.spzeros(F::Field,m,n) = csr_alloc(m,n,0,F.p)
+SparseArrays.spzeros(F::Field,m,n) = (M = csr_alloc(m,n,0,F.p); fill!(M.p,0); M)
+
 SparseArrays.sprand(F::Field,m,n,density = 1.0) = CSR(sprand(ZZp{F},n,m,density))
 
 csr_realloc(A::CSR{F},nzmax) where F = @ccall spasm_lib.spasm_csr_realloc(A.data::Ptr{_CSR{F}},nzmax::Int64)::Cvoid
