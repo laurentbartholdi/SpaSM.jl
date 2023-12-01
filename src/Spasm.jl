@@ -1,23 +1,49 @@
 module Spasm
 
-if false && Sys.isapple()
-    @warn "Setting OMP_NUM_THREADS to 1"
-    ENV["OMP_NUM_THREADS"] = "1"
-end
-
 using SparseArrays, LinearAlgebra, StructArrays, Libdl, FileIO, Mmap, Images, Random, DataStructures
 
 import SparseArrays: nnz
 import LinearAlgebra: rank
 
 export kernel, CSR, echelonize, Block, solve, sparse_triangular_solve, ZZp, Field,
-    rank, I, # from LinearAlgebra
+    rank, I, axpy!, xapy!, # from LinearAlgebra
     sprand, nnz, spzeros, # from SparseArrays
     load, save # from FileIO
 
+#const spasm_lib = "$(@__DIR__)" * "/../deps/spasm/src/libspasm-asan." * Libdl.dlext
 const spasm_lib = "$(@__DIR__)" * "/../deps/spasm/src/libspasm." * Libdl.dlext
 
 const prime₀ = 42013 # the default prime to use
+
+function _logtrue(s::Cstring)
+    s = unsafe_string(s)
+    msg = Base.text_colors[:yellow]*Base.text_colors[:bold]*"SPASM: "*Base.text_colors[:normal]
+    if s[1]=='\r'
+        s = "\r"*msg*s[2:end]
+    elseif s[1]=='\n' && length(s)≠1
+        s = "\n"*msg*s[2:end]
+    else
+        s = msg*s
+    end
+    print(s)
+    Cint(0)
+end
+
+_logfalse(s::Cstring) = Cint(0)
+
+function log(l = nothing)
+    _logcallback = cglobal((:logcallback,Spasm.spasm_lib),Ptr{Nothing})
+
+    if l==nothing
+        unsafe_store!(_logcallback,C_NULL)
+    elseif l==true
+        unsafe_store!(_logcallback,@cfunction(_logtrue,Cint,(Cstring,)))
+    elseif l==false
+        unsafe_store!(_logcallback,@cfunction(_logfalse,Cint,(Cstring,)))
+    else
+        unsafe_store!(_logcallback,@cfunction($l,Cint,(Cstring,)))
+    end
+end
 
 ################################################################
 # field arithmetic (mainly from spasm_ZZp.c)
@@ -260,7 +286,7 @@ function Base.getproperty(N::LU,s::Symbol)
         return getfield(M,s)
     end
 end
-rank(N::LU) = N.r
+LinearAlgebra.rank(N::LU) = N.r
 
 struct _DM
     p::Ptr{Int32} # size n, row permutation
@@ -595,11 +621,12 @@ int spasm_reach(const struct spasm_csr * A, const struct spasm_csr * B, int k, i
 Implements (dense vector) * (sparse CSR matrix)
 y ← x⋅A + y
 """
-function xApy(x::Vector{ZZp{F}}, A::CSR{F}, y::Vector{ZZp{F}}) where F
+function xapy!(x::Vector{ZZp{F}}, A::CSR{F}, y::Vector{ZZp{F}}) where F
     @assert length(x)==size(A,1)
     @assert length(y)==size(A,2)
     @ccall spasm_lib.spasm_xApy(pointer(x)::Ptr{Int32},A.data::Ptr{_CSR{F}},pointer(y)::Ptr{Int32})::Cvoid
 end
+Base.:(*)(x::Vector{ZZp{F}}, A::CSR{F}) where F = xapy!(x, A, zeros(ZZp{F},size(A,2)))
 
 """
     Axpy(A::CSR{F}, x::Vector{ZZp{F}}, y::Vector{ZZp{F}})
@@ -607,11 +634,12 @@ end
 Implements (sparse CSR matrix) * (dense vector)
 y ← A⋅x + y
 """
-function Axpy(A::CSR{F}, x::Vector{ZZp{F}}, y::Vector{ZZp{F}}) where F
+function LinearAlgebra.axpy!(A::CSR{F}, x::Vector{ZZp{F}}, y::Vector{ZZp{F}}) where F
     @assert length(x)==size(A,2)
     @assert length(y)==size(A,1)
     @ccall spasm_lib.spasm_Axpy(A.data::Ptr{_CSR{F}},pointer(x)::Ptr{Int32},pointer(y)::Ptr{Int32})::Cvoid
 end
+Base.:(*)(A::CSR{F}, x::Vector{ZZp{F}}) where F = axpy!(A, x, zeros(ZZp{F},size(A,1)))
 
 ################################################################
 # spasm_triangular.c
@@ -708,6 +736,7 @@ function sparse_triangular_solve(U::CSR{F}, B::CSR{F}, qinv::Vector{Int32}) wher
 end
 
 sparse_triangular_solve(LU::LU{F}, B::CSR{F}) where F = sparse_triangular_solve(LU.U, B, LU.qinv)
+Base.:(/)(B::CSR{F}, LU::LU{F}) where F = sparse_triangular_solve(LU, B)
 
 ################################################################
 # spasm_schur.c
@@ -780,15 +809,19 @@ end
 
 """Capture stderr while executing f, if the optional argument is true.
 
-Typicall syntax is
+Typical syntax is
 julia> capture_stderr() do
            @info "Hi!"
             42
        end
 
 (42, "┌ Info: Hi!\n└ @ Main REPL[1]:2\n")
+
+This plays badly with multithreading, so is automatically disabled when `Threads.threadid() ≥ 2`
 """
 function capture_stderr(f::Function, activate::Bool = true)
+    activate &= Threads.threadid() == 1
+    
     if activate
         original_stderr = stderr
         err_rd, err_wr = redirect_stderr()
@@ -809,6 +842,7 @@ function capture_stderr(f::Function, activate::Bool = true)
 end
 
 function echelonize(A::CSR{F}, opts = EchelonizeOpts(); verbose = false, kwargs...) where F
+    isa(verbose,Bool) || (verbose = nnz(A) ≥ verbose)
     lu, _ = capture_stderr(!verbose) do
         LU(@ccall spasm_lib.spasm_echelonize(A.data::Ptr{_CSR{F}},pointer_from_objref(parse_echelonize_opts(opts; kwargs...))::Ptr{EchelonizeOpts})::Ptr{_LU{F}})
     end
@@ -824,6 +858,7 @@ rref(fact::LU{F}, Rqinv) where F = CSR(@ccall spasm_lib.spasm_rref(fact.data::Pt
 # spasm_kernel.c
 
 function kernel(fact::LU{F}; verbose = false) where F
+    isa(verbose,Bool) || (verbose = nnz(fact.U) ≥ verbose)
     k, _ = capture_stderr(!verbose) do
         CSR(@ccall spasm_lib.spasm_kernel(fact.data::Ptr{_LU{F}})::Ptr{_CSR{F}})
     end
@@ -1061,7 +1096,7 @@ end
 # one-stop shop for kernel and computation
 kernel(A::CSR{F}; kwargs...) where F = kernel(echelonize(A; kwargs...))
 
-rank(A::CSR{F}; kwargs...) where F = rank(echelonize(A; kwargs...))
+LinearAlgebra.rank(A::CSR{F}; kwargs...) where F = rank(echelonize(A; kwargs...))
 
 function pivots(qinv,k)
     pivots = Set(Int32(i-1) for i=1:size(k,2) if qinv[i]==-1)

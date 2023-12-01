@@ -107,19 +107,19 @@ end
 function echelonize(block::Block{CSR{F}}; kwargs...) where F
     lu = Vector{LU{F}}(undef,length(block))
     
-    Threads.@threads for b=1:length(block)
+    for b=1:length(block)
         lu[b] = echelonize(block.blocks[b]; kwargs...)
     end
 
     Block{LU{F}}(lu,block.row2block,block.col2block,block.block2row,block.block2col)
 end
 
-rank(block::Block; kwargs...) = sum(rank(X; kwargs...) for X=block.blocks,init=0)
+LinearAlgebra.rank(block::Block; kwargs...) = sum(rank(X; kwargs...) for X=block.blocks;init=0)
     
 function kernel(block::Block{LU{F}}; kwargs...) where F
     k = Vector{CSR{F}}(undef,length(block))
     
-    Threads.@threads for b=1:length(block)
+    for b=1:length(block)
         k[b] = kernel(block.blocks[b]; kwargs...)
     end
     block2row = Vector{Int32}[]
@@ -194,7 +194,7 @@ function sparse_triangular_solve(block::Block{LU{F}}, B::CSR{F}) where F
     rowptrs = [B.p for B=Bs]
     colvals = [B.j for B=Bs]
     nzvals = [B.x for B=Bs]
-    Threads.@threads for k=1:size(B,1)
+    for k=1:size(B,1)
         for b=1:length(block)
             rowptrs[b][2] = 0 # empty matrices Bs
         end
