@@ -56,7 +56,7 @@ i64 spasm_nnz(const struct spasm_csr * A)
 void spasm_human_format(i64 n, char *target)
 {
 	if (n < 1000) {
-		snprintf(target, 8, "%" PRId64, n);
+		snprintf(target, 8, "%hd", (short) n);
 		return;
 	}
 	if (n < 1000000) {
