@@ -5,9 +5,9 @@ using SparseArrays, LinearAlgebra, StructArrays, Libdl, FileIO, Mmap, Images, Ra
 import SparseArrays: nnz
 import LinearAlgebra: rank
 
-export kernel, CSR, echelonize, Block, solve, sparse_triangular_solve, ZZp, Field,
+export kernel, CSR, echelonize, Block, solve, sparse_triangular_solve, ZZp, Field, findnzs,
     rank, I, axpy!, xapy!, # from LinearAlgebra
-    sprand, nnz, spzeros, # from SparseArrays
+    sprand, nnz, spzeros, findnz, # from SparseArrays
     load, save # from FileIO
 
 #const spasm_lib = "$(@__DIR__)" * "/../deps/spasm/src/libspasm-asan." * Libdl.dlext
@@ -513,7 +513,7 @@ function fileio_save(f::File{format"SMS"}, A::CSR{F}) where F
 end
 
 #@ we ignore the spasm_dm field, for now
-save_pnm(A::CSR{F}, f::Libc.FILE, x, y, mode, spasm_dm = nothing) where F = @ccall spasm_lib.spasm_save_pnm(A.data::Ptr{_CSR{F}},f.ptr::Ptr{Cvoid},x::Int32,y::Int32,mode::Int32,C_NULL::Ptr{Cvoid})::Cvoid
+save_pnm(A::CSR{F}, f::Libc.FILE, x, y, mode, spasm_dm = nothing) where F = @ccall spasm_lib.spasm_save_pnm(A.data::Ptr{_CSR{F}},f.ptr::Ptr{Cvoid},x::Int32,y::Int32,mode::Int32,(spasm_dm == nothing ? C_NULL : spasm_dm.data)::Ptr{Cvoid})::Cvoid
 function save_pnm(A::CSR, io::IO, x, y, mode, spasm_dm = nothing)
     intmode = Dict(:PBM => 1, :PGM => 2, :PPM => 3, 1 => 1, 2 => 2, 3 => 3)[mode]
     f = Libc.FILE(io);
@@ -1067,6 +1067,38 @@ function sms_to_sparse(f::AbstractString; transpose=false, T=Int32)
     end
 end
 
+function findnz(A::CSR{F}) where F
+    numnz = nnz(A)
+    p = A.p
+    J = A.j .+ 1
+    V = copy(A.x)
+    I = Vector{Int}(undef, numnz)
+
+    count = 1
+    for row=1:size(A,1), k=A.p[row]+1:A.p[row+1]
+        I[count] = row
+        count += 1
+    end
+
+    return (I, J, V)
+end
+
+struct CSREnumerator{F}
+   A::CSR{F}
+end
+Base.length(enum::CSREnumerator{F}) where F = nnz(enum.A)
+
+"""Return a lightweight iterator over all non-zeros in matrix `A`, as triples `(i,j,v)`
+"""
+findnzs(A::CSR{F}) where F = CSREnumerator{F}(A)
+
+function Base.iterate(enum::CSREnumerator{F}, state = (1,1)) where F
+    row, pos = state
+    row > enum.A.n && return nothing
+    pos > enum.A.p[row+1] && return nothing
+    ((row, enum.A.j[pos]+1, enum.A.x[pos]), (row+Int(enum.A.p[row+1]==pos),pos+1))
+end
+
 ################################################################
 # for testing, direct access to the compiled programs
 
@@ -1122,5 +1154,8 @@ end
 ################################################################
 # block matrices and LU decompositions
 include("blocks.jl")
+
+
+# also, hook into gesv to avoid the triplet-to-matrix conversion twice
 
 end
