@@ -1,0 +1,30 @@
+2021-12-14 v4.2.0
+	* change in the API for random iterators
+	* replace micro-architecture detection by march=native by default or user provided flags
+	* dump support of gcc-4.9.2 -> minversion is now gcc-5
+	* new AES example
+	* new Modular ring over RecInt::rint elements
+	* fixed the max cardinalities for rings
+	* fix many bugs
+2019-06-07 v4.1.1
+	Minor updates:
+	* add README.md in distribution
+2019-05-10 v4.1.0
+	Improvements:
+	* rewrite of the Modular fields (code factorization, cleanup, bug
+	fixing, etc)
+	* fix many bugs
+	* improve testsuite for rationals
+
+2017-11-23 v4.0.4
+	Improvements:
+	* minor build system fix with simd disabling option
+2017-11-17 v4.0.3
+	Improvements:
+	* fix many bugs (and merging all sage patches)
+	* improved build system (instruction set detection, C++11 and clang compatibility, ...)
+	* simplification of givvector
+
+2003-12-11 Pascal Giorgi <pascal.giorgi@ens-lyon.fr>
+	* /src/kernel/zpz/givzpz.h  add struct Std64 with some definition and redefine in the ggod way int64 & uint64
+
