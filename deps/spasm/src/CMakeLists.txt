@@ -1,4 +1,4 @@
-add_compile_options(-Werror)
+#add_compile_options(-Werror)
 
 add_library(spasm SHARED
 	# crypto stuff
@@ -28,5 +28,9 @@ add_library(spasm SHARED
 
 target_link_libraries(spasm PUBLIC OpenMP::OpenMP_C)
 target_link_libraries(spasm PUBLIC m)
-target_link_libraries(spasm PUBLIC PkgConfig::GIVARO)
-target_link_libraries(spasm PUBLIC PkgConfig::FFLAS_FFPACK)
+target_include_directories(spasm PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../../usr/include>)
+target_link_directories(spasm PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../../usr/lib>)
+target_link_libraries(spasm PUBLIC PkgConfig::GMP)
+target_link_libraries(spasm PUBLIC givaro blas)
+#target_link_libraries(spasm PUBLIC PkgConfig::GIVARO)
+#target_link_libraries(spasm PUBLIC PkgConfig::FFLAS_FFPACK)

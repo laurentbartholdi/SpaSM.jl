@@ -30,8 +30,9 @@ find_package(OpenMP REQUIRED)
 
 # pkg-config then libm4ri
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(GIVARO REQUIRED IMPORTED_TARGET givaro)
-pkg_check_modules(FFLAS_FFPACK REQUIRED IMPORTED_TARGET fflas-ffpack)
+pkg_check_modules(GMP REQUIRED IMPORTED_TARGET gmp)
+#pkg_check_modules(GIVARO REQUIRED IMPORTED_TARGET givaro)
+#pkg_check_modules(FFLAS_FFPACK REQUIRED IMPORTED_TARGET fflas-ffpack)
 
 # set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/config;${CMAKE_MODULE_PATH}")
 # find_package(PAPI)

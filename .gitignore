@@ -27,7 +27,7 @@ docs/site/
 # environment.
 Manifest.toml
 
-# All the junk created during compilation
+# All the junk created during compilation of spasm
 deps/spasm/CMakeCache.txt
 deps/spasm/CMakeFiles/
 deps/spasm/CTestTestfile.cmake
@@ -86,3 +86,18 @@ deps/spasm/tools/solve
 deps/spasm/tools/stack
 deps/spasm/tools/transpose
 deps/spasm/tools/vertical_swap
+
+# Givaro junk
+deps/givaro/src/kernel/bstruct/bstruct
+deps/givaro/src/kernel/field/field
+deps/givaro/src/kernel/integer/integer
+deps/givaro/src/kernel/memory/memory
+deps/givaro/src/kernel/rational/rational
+deps/givaro/src/kernel/ring/ring
+deps/givaro/src/kernel/system/system
+deps/givaro/src/kernel/usr/
+deps/givaro/src/library/matrix/matrix
+deps/givaro/src/library/poly1/poly1
+deps/givaro/src/library/tools/tools
+deps/givaro/src/library/usr/
+deps/givaro/src/library/vector/vector

@@ -1,7 +1,14 @@
 name = "Spasm"
 uuid = "017bf598-072c-475c-a75e-c3e68736ce70"
 authors = ["Laurent Bartholdi <laurent.bartholdi@gmail.com>"]
-version = "0.2.0"
+version = "0.3.0"
+
+[compat]
+Julia = ">=1"
+DataStructures = "1"
+FileIO = "1"
+Images = "1"
+StructArrays = "1"
 
 [deps]
 DataStructures = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
