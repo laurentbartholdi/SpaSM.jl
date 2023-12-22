@@ -5,10 +5,10 @@ version = "0.3.0"
 
 [compat]
 julia = "1"
-DataStructures = "0 - 1"
+DataStructures = "0, 1"
 FileIO = "1"
-Images = "0 - 1"
-StructArrays = "0 - 1"
+Images = "0, 1"
+StructArrays = "0, 1"
 
 [deps]
 DataStructures = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
