@@ -9,7 +9,7 @@ AM_CPPFLAGS=-I$(top_builddir) ${GMP_VERSION}
 pkgincludesubdir=$(includedir)/gmp++
 
 AM_CXXFLAGS=$(GIVARO_CXXFLAGS)
-AM_CPPFLAGS+= -I$(top_builddir)/src/kernel/memory -I$(top_builddir)/src/kernel/system -I$(top_builddir)/src/kernel/recint
+AM_CPPFLAGS+= -I$(top_builddir)/src/kernel -I$(top_builddir)/src/kernel/memory -I$(top_builddir)/src/kernel/system -I$(top_builddir)/src/kernel/recint
 
 
 noinst_LTLIBRARIES=libgmppp.la
