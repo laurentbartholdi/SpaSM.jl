@@ -5,7 +5,7 @@ using SparseArrays, LinearAlgebra, StructArrays, Libdl, FileIO, Mmap, Images, Ra
 import SparseArrays: nnz
 import LinearAlgebra: rank
 
-export kernel, CSR, echelonize, Block, solve, sparse_triangular_solve, ZZp, Field, findnzs,
+export kernel, CSR, echelonize, Block, solve, gesv, sparse_triangular_solve, ZZp, Field, findnzs,
     rank, I, axpy!, xapy!, # from LinearAlgebra
     sprand, nnz, spzeros, findnz, # from SparseArrays
     load, save # from FileIO
@@ -166,7 +166,7 @@ function Base.getproperty(N::CSR{F},s::Symbol) where F
     end
 end
 
-function Base.getindex(N::CSR{F},i,j) where F
+function Base.getindex(N::CSR{F},i::Integer,j::Integer) where F
     colptr = N.j
     for a=N.p[i]+1:N.p[i+1]
         if colptr[a] == j-1
@@ -175,6 +175,22 @@ function Base.getindex(N::CSR{F},i,j) where F
     end
     return ZZp{F}(0)
 end
+
+# default, slow and ugly
+function Base.getindex(X::CSR{F},i,j) where F
+    subX = getindex(sparse(X),j,i)
+    if isa(subX,SparseMatrixCSC)
+        CSR(subX)
+    elseif isa(subX,SparseVector)
+        CSR(SparseMatrixCSC(subX))
+    else
+        subX
+    end
+end
+
+# slow and ugly
+Base.vcat(X1::CSR{F},X::CSR{F}) where F = CSR(hcat(sparse(X1),sparse(X)))
+Base.hcat(X1::CSR{F},X::CSR{F}) where F = CSR(vcat(sparse(X1),sparse(X)))
 
 Base.show(io::IO, A::CSR{F}) where F = (M = _get(A); @assert F==M.field; print(io,M.n,"×",M.m," CSR matrix % ",F.p," with ",nnz(A)," (maximum ",M.nzmax,") non-zeros"))
 
@@ -896,11 +912,13 @@ Solve `X`*`A` == `B` where `A` has already been echelonized in `fact`.
 Assumes that `fact` is a complete factorization, with `:U` and `:L` fields.
 Returns (X, Vector{Bool} indicating which rows of `X` are valid solutions).
 """
-function gesv(fact::LU{F}, B::CSR{F}) where F
+function gesv(fact::LU{F}, B::CSR{F}; verbose = false) where F
     fact.L
     @assert size(B,2)==size(fact.U,2)
     ok = zeros(Bool,size(B,1))
-    X = CSR(@ccall spasm_lib.spasm_gesv(fact.data::Ptr{_LU{F}}, B.data::Ptr{_CSR{F}}, pointer(ok)::Ptr{Bool})::Ptr{_CSR{F}})
+    X, _ = capture_stderr(!verbose) do
+	CSR(@ccall spasm_lib.spasm_gesv(fact.data::Ptr{_LU{F}}, B.data::Ptr{_CSR{F}}, pointer(ok)::Ptr{Bool})::Ptr{_CSR{F}})
+    end
     (X,ok)
 end
 
