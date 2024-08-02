@@ -28,6 +28,7 @@ docs/site/
 Manifest.toml
 
 # All the junk created during compilation of spasm
+deps/spasm/Makefile
 deps/spasm/CMakeCache.txt
 deps/spasm/CMakeFiles/
 deps/spasm/CTestTestfile.cmake

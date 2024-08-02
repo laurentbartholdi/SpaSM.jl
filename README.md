@@ -47,4 +47,4 @@ julia> sparse(k)
  42012
 ```
 
-
+[![Build Status](https://github.com/laurentbartholdi/Spasm.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/laurentbartholdi/Spasm.jl/actions/workflows/CI.yml?query=branch%3Amain)
