@@ -251,7 +251,7 @@ mutable struct Triplet{F}
 end
 _get(x::Triplet) = unsafe_load(x.data,1)
 
-nnz(A::Triplet) = (M = _get(A); M.nz)
+SparseArrays.nnz(A::Triplet) = (M = _get(A); M.nz)
 
 Base.show(io::IO, A::Triplet{F}) where F = (M = _get(A); @assert F==M.field; print(io,M.n,"×",M.m," Triplet matrix % ",F.p," with ",nnz(A)," (maximum ",M.nzmax,") non-zeros"))
 
@@ -429,7 +429,7 @@ spasm_ZZp spasm_prng_ZZp(spasm_prng_ctx *ctx);
 
 wtime() = @ccall spasm_lib.spasm_wtime()::Float64
 
-nnz(A::CSR{F}) where F = @ccall spasm_lib.spasm_nnz(A.data::Ptr{_CSR{F}})::Int64
+SparseArrays.nnz(A::CSR{F}) where F = @ccall spasm_lib.spasm_nnz(A.data::Ptr{_CSR{F}})::Int64
 
 # we don't expose these, they're just the same as the Libc ones
 """
@@ -1085,7 +1085,7 @@ function sms_to_sparse(f::AbstractString; transpose=false, T=Int32)
     end
 end
 
-function findnz(A::CSR{F}) where F
+function SparseArrays.findnz(A::CSR{F}) where F
     numnz = nnz(A)
     p = A.p
     J = A.j .+ 1

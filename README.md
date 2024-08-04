@@ -11,8 +11,8 @@ julia> using Spasm, SparseArrays
 
 julia> m = sparse([1,1,2,2],[1,2,1,2],[1,2,3,6]);
 
-julia> sm = spasm(m)
-2×2 Spasm matrix % 42013 with 4 (maximum 4) non-zeros
+julia> sm = CSR(m)
+2×2 CSR matrix % 42013 with 4 (maximum 4) non-zeros
 
 julia> k = kernel(sm)
 julia> k = kernel(sm)
