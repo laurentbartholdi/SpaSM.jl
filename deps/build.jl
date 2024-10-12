@@ -7,8 +7,8 @@ cd("givaro-4.2.0") do
     run(`make install`)
 end
 
-cd("fflas-ffpack") do
-    run(`./autogen.sh PKG_CONFIG_PATH=$installdir/lib/pkgconfig --prefix=$installdir`)
+cd("fflas-ffpack-2.5.0") do
+    run(`./configure PKG_CONFIG_PATH=$installdir/lib/pkgconfig --prefix=$installdir --with-blas-libs="-lcblas"`)
     run(`make install`)
 end
 

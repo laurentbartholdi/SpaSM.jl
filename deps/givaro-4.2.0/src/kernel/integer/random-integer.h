@@ -11,7 +11,7 @@
 
 #include "gmp++/gmp++.h"
 
-#if 0
+#if __cplusplus < 201703L
 namespace std {
     template <bool B>
     using bool_constant = integral_constant<bool, B>;
