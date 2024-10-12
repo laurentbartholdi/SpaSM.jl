@@ -3,6 +3,7 @@
  * and exports simple C functions.
  */
 #include <stdio.h>
+#include <cinttypes>
 
 #include <givaro/modular-balanced.h>
 #include <fflas-ffpack/fflas/fflas.h>

@@ -86,9 +86,6 @@ do
 		[ CUresult a;],
 		[
 		dnl  # See if we are running CUDA 4.0 with --enable-cxx
-		AC_TRY_RUN(
-			[ ${CODE_CUDA} ],
-			[
 			AC_MSG_RESULT(found)
 			AC_DEFINE(HAVE_CUDA,1,[Define if CUDA is installed])
 
@@ -98,12 +95,6 @@ do
 			AC_SUBST(CUDA_LIBS)
 			AC_SUBST(CUDA_CFLAGS)
 			break;
-			],[
-			AC_MSG_RESULT(no : cuda is too old or not found)
-			dnl  AC_SUBST(CUDA_VERSION)
-			],[ dnl This should never happen
-			AC_MSG_RESULT(no)
-			])
 		],[
 			AC_MSG_RESULT(unknown)
 			echo "WARNING: You appear to be cross compiling, so there is no way to determine"

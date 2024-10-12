@@ -37,19 +37,10 @@ AC_DEFUN([FF_CHECK_OMP],
 		[
 		BACKUP_CXXFLAGS=${CXXFLAGS}
 		CXXFLAGS="${BACKUP_CXXFLAGS} ${OPENMP_CXXFLAGS}"
-		AC_TRY_RUN([
-#include <omp.h>
-			int main() {
-			int p = omp_get_num_threads();
-			return 0;
-			}
-		],
+		AC_CHECK_HEADER([omp.h],
 		[ omp_found="yes" ],
-		[ omp_found="no" ],
-		[
-			echo "cross compiling...disabling"
-			omp_found="no"
-		])
+		[ omp_found="no" ]
+		)
 		AS_IF(	[ test "x$omp_found" = "xyes" ],
 			[
 				AC_DEFINE(USE_OPENMP,1,[Define if OMP is available])

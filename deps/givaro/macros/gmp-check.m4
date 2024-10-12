@@ -105,21 +105,11 @@ AC_DEFUN([GIV_CHECK_GMP], [
 		exit 1
 	])
 
-	AC_MSG_CHECKING([whether gmp version is at least $min_gmp_release])
-	AC_TRY_RUN(
-		[ 
-			#include <cstddef>
-			#include <gmp.h>
-			int main () {
-				return (__GNU_MP_RELEASE < $min_gmp_release);
-			}
-		],
-		[ AC_MSG_RESULT(yes)
-		],
-		[ AC_MSG_RESULT(no)
-		  AC_MSG_ERROR(your GMP is too old. GMP release >= $min_gmp_release needed)
-		  exit 1]
-	)
+	### Major hack! we need to add -lrt sometimes, let's do it here
+	AC_MSG_CHECKING(if we need -lrt)
+	AC_CHECK_LIB([rt], [AC_MSG_RESULT(yes)
+			GMP_LIBS="${GMPLIBS} -lrt"], [AC_MSG_RESULT(no)])
+
 	AC_LANG_POP([C++])
 	
 	AC_SUBST(GMP_CFLAGS)

@@ -9,4 +9,4 @@ URL: http://github.com/linbox-team/fflas-ffpack
 Version: @VERSION@
 Requires: givaro >= 4.2.0
 Libs: @PARLIBS@ @PRECOMPILE_LIBS@ @BLAS_LIBS@
-Cflags: -I@includedir@  @BLAS_CFLAGS@  @PARFLAGS@ @PRECOMPILE_FLAGS@ @REQUIRED_FLAGS@
+Cppflags: -I@includedir@  @BLAS_CFLAGS@  @PARFLAGS@ @PRECOMPILE_FLAGS@ @REQUIRED_FLAGS@

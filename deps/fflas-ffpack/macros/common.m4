@@ -137,18 +137,8 @@ AC_DEFUN([FPMATH_FLAGS],[
     CXXFLAGS="${OPTIM_FLAGS} ${CXXFLAGS}"
     AS_CASE([$target],
             [*i386*|*i686*],
-                [AC_RUN_IFELSE([AC_LANG_PROGRAM([[]], [[#ifdef __SSE__
-                                                          return 0;
-                                                        #else
-                                                          return 1;
-                                                        #endif
-                                                        ]])],
                     [AC_MSG_NOTICE("Adding '-mfpmath=sse' to OPTIM_FLAGS")
                      OPTIM_FLAGS+=" -mfpmath=sse"],
-                    [], # either the flag is not recognized by the compiler or
-                        # SSE is not avail => do nothing
-                    [AC_MSG_NOTICE("If available you may want to add
-                     '-mfpmath=sse' to flags")])] # cross-compilation case
                 []) # not on i386 nor i686 => do nothing
     CXXFLAGS="${BACKUP_CXXFLAGS}"
     ])

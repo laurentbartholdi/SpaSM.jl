@@ -1,9 +1,6 @@
 include_directories (../src)
 
-if(APPLE)
-    include_directories (/opt/homebrew/include)
-    set(ARGP argp)
-endif()
+set(ARGP argp)
 
 add_library(spasmtools common.c)
 

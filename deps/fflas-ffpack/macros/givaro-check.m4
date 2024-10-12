@@ -80,24 +80,6 @@ if test -r "$GIVARO_HOME/include/givaro/givconfig.h"; then
 	[#include <givaro/givinteger.h>],
 	[Givaro::Integer a;],
 	[
-	AC_TRY_RUN(
-	[#include <givaro/givconfig.h>
-	 int main () { if (GIVARO_VERSION >= $version_min && GIVARO_VERSION < $version_max) return 0; else return -1; /* old version of Givaro are defined as hexa 0x03yyzz*/ }
-	],[
-	givaro_found="yes"
-	break
-	],[
-	givaro_problem="$problem $GIVARO_HOME"
-	unset GIVARO_CFLAGS
-	unset GIVARO_LIBS
-	],[
-	givaro_found="yes"
-	givaro_cross="yes"
-
-	break
-	])
-	],
-	[
 	givaro_found="yes"
 	givaro_checked="$checked $GIVARO_HOME"
 #unset GIVARO_CFLAGS

@@ -9,4 +9,4 @@ URL: https://casys.gricad-pages.univ-grenoble-alpes.fr/givaro
 Version: @VERSION@
 Requires:
 Libs: -L@libdir@ -lgivaro @GMP_LIBS@
-Cflags: -I@includedir@ @REQUIRED_FLAGS@
+Cppflags: -I@includedir@ @REQUIRED_FLAGS@

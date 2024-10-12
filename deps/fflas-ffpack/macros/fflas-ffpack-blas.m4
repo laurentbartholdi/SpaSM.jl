@@ -63,77 +63,10 @@ AC_DEFUN([FF_CHECK_USER_BLAS],
                 dnl is there user CBLAS accessible ?
 		AC_MSG_CHECKING(for BLAS)
 
-		AC_TRY_RUN([ ${CODE_CBLAS} ],[
-				blas_found="yes"
-                                is_cblas="yes"
-                                AC_MSG_RESULT(found CBLAS)
-				],[
-                                dnl No, then checking for Fortran BLAS
-                                AC_TRY_RUN(
-                                  [ ${CODE_FBLAS} ],
-                                   [ blas_found="yes"
-                                     is_cblas="no"
-                                     AC_MSG_RESULT(found Fortran BLAS)
-                                   ],[
-                                     dnl No, then checking for  OpenBLAS
-                                     BLAS_LIBS="${BLAS_LIBS} -lopenblas -lpthread"
-                                     AS_CASE([$CCNAM], [gcc*], [BLAS_LIBS="${BLAS_LIBS} -lgfortran"])
-                                     LIBS="${BACKUP_LIBS} ${BLAS_LIBS}"
-				     AC_TRY_RUN(
-					[ ${CODE_CBLAS} ],[
-                                        AC_MSG_RESULT(found OpenBLAS)
-					blas_found="yes"
-                                        is_cblas="yes"
-					AC_SUBST(BLAS_LIBS)
-					],[
-					blas_problem="$problem"
-			                AC_MSG_RESULT(problem)
-					],[
-					blas_found="yes"
-                                        is_cblas="yes"
-			                AC_MSG_RESULT(cross compiling)
-					blas_cross="yes"
-					AC_SUBST(BLAS_LIBS)
-					])
-                                        ],[
-		                       blas_found="yes"
-                                       is_cblas="no"
-			               AC_MSG_RESULT(cross compiling)
-				       blas_cross="yes"
-                                   ])
-				],[
-				blas_found="yes"
-		                AC_MSG_RESULT(cross compiling)
-                                is_cblas="yes"
-				blas_cross="yes"
-				])
-
-		AS_IF([ test "x$blas_found" = "xyes" ],
-				[
-				BLAS_VENDOR="USER"
-				AC_SUBST(BLAS_VENDOR)
-                                AC_DEFINE(HAVE_BLAS,1,[Define if BLAS is available])
-                                AS_IF([test "x$is_cblas" = "xyes" ],[
-                                            AC_DEFINE(HAVE_CBLAS,1,[Define if BLAS is a CBLAS])
-                                      ],[])
-
-				AS_IF([test "x$blas_cross" = "xyes"], [
-					echo "WARNING: You appear to be cross compiling, so there is no way to determine"
-					echo "whether your BLAS are good. I am assuming it is."],[])
-				],
-				[
-                                echo ''
-	echo '*******************************************************************************'
-	echo ' ERROR: BLAS not found!'
-	echo
-	echo ' BLAS routines are required for this library to compile. Please'
-	echo ' make sure BLAS are installed and specify its location with the option'
-	echo ' --with-blas-libs=<libs> and if necessary --with-blas-cflags=<cflags>'
-	echo ' when running configure.'
-	echo '*******************************************************************************'
-	exit 1
-        ])
-
+		BLAS_LIBS="-lblastrampoline -lpthread"
+		blas_found="yes"
+		is_cblas="yes"
+		AC_SUBST(BLAS_LIBS)
 
         dnl	AM_CONDITIONAL(FFLASFFPACK_HAVE_BLAS, test "x$blas_found" = "xyes")
         dnl     AM_CONDITIONAL(FFLASFFPACK_HAVE_CBLAS, test "x$is_cblas" = "xyes")
