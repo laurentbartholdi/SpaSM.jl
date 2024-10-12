@@ -2,8 +2,8 @@ using Libdl
 
 installdir = pwd()*"/usr"
 
-cd("givaro") do
-    run(`./autogen.sh --prefix=$installdir`)
+cd("givaro-4.2.0") do
+    run(`./configure --prefix=$installdir`)
     run(`make install`)
 end
 
