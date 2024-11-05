@@ -1,4 +1,4 @@
-# Spasm
+# SpaSM
 
 This is a user interface, in Julia, to the [SpaSM](https://github.com/cbouilla/spasm) sparse direct solver mod `p`.
 
