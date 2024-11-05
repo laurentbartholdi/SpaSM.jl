@@ -4,10 +4,10 @@ This is a user interface, in Julia, to the [SpaSM](https://github.com/cbouilla/s
 
 It exposes (or will expose :)) all the functions of the C interface, in the same syntax but without the leading `spasm_`. It's currently very much a work in progress.
 
-*Note* `spasm` creates a Spasm matrix from the *transpose* of a sparse one. Indeed Spasm stores matrix in row format while Julia stores them in column format, so that the "fast" conversion between Spasm and Julia matrices requires transposition.
+*Note* `spasm` creates a SpaSM matrix from the *transpose* of a sparse one. Indeed Spasm stores matrix in row format while Julia stores them in column format, so that the "fast" conversion between SpaSM and Julia matrices requires transposition.
 
 ```julia
-julia> using Spasm, SparseArrays
+julia> using SpaSM, SparseArrays
 
 julia> m = sparse([1,1,2,2],[1,2,1,2],[1,2,3,6]);
 
