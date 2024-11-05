@@ -1,17 +1,17 @@
-module Spasm
+module SpaSM
 
 using SparseArrays, LinearAlgebra, StructArrays, Libdl, FileIO, Mmap, Images, Random, DataStructures
 
 import SparseArrays: nnz
 import LinearAlgebra: rank
+import Spasm_jll
 
 export kernel, CSR, echelonize, Block, solve, gesv, sparse_triangular_solve, ZZp, Field, findnzs,
     rank, I, axpy!, xapy!, # from LinearAlgebra
     sprand, nnz, spzeros, findnz, # from SparseArrays
     load, save # from FileIO
 
-#const spasm_lib = "$(@__DIR__)" * "/../deps/spasm/src/libspasm-asan." * Libdl.dlext
-const spasm_lib = "$(@__DIR__)" * "/../deps/spasm/src/libspasm." * Libdl.dlext
+const spasm_lib = Spasm_jll.spasm
 
 const prime₀ = 42013 # the default prime to use
 
@@ -32,7 +32,7 @@ end
 _logfalse(s::Cstring) = Cint(0)
 
 function log(l = nothing)
-    _logcallback = cglobal((:logcallback,Spasm.spasm_lib),Ptr{Nothing})
+    _logcallback = cglobal((:logcallback,SpaSM.spasm_lib),Ptr{Nothing})
 
     if l==nothing
         unsafe_store!(_logcallback,C_NULL)
@@ -98,7 +98,7 @@ ZZp(prime::Int, x::T) where {T <: Integer} = _normalize(Field(prime),mod(x,prime
 ZZp(x) = ZZp(F₀, x)
 (F::Field)(x::T) where {T <: Integer} = _normalize(F,mod(x,F.p))
 Base.convert(::Type{ZZp{F}},x::T) where {F, T <: Integer} = ZZp(F,x)
-ZZp{F}(x::Spasm.ZZp{F}) where F = x
+ZZp{F}(x::ZZp{F}) where F = x
 ZZp(x::ZZp{F₀}) = ZZp{F₀}(x)
 ZZp(x::ZZp{F}) where F = error("Trying to convert from Field($(F.p)) to Field($prime₀)")
 
