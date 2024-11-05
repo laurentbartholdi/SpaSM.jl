@@ -1,6 +1,6 @@
 # Spasm
 
-This is a user interface, in Julia, to the [Spasm](https://github.com/cbouilla/spasm) sparse direct solver mod `p`.
+This is a user interface, in Julia, to the [SpaSM](https://github.com/cbouilla/spasm) sparse direct solver mod `p`.
 
 It exposes (or will expose :)) all the functions of the C interface, in the same syntax but without the leading `spasm_`. It's currently very much a work in progress.
 
